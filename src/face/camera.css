@@ -1,0 +1,17 @@
+/* The user's own camera view is the page background. Mirrored so the picture
+   matches the room: raise your right hand, it goes up on the right. */
+.camera {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+/* the feed floats above the camera */
+#app {
+  position: relative;
+  z-index: 1;
+}

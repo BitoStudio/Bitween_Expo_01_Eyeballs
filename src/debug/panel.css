@@ -1,0 +1,123 @@
+.debug {
+  position: fixed;
+  z-index: 10;
+  right: 12px;
+  bottom: 12px;
+  width: 236px;
+  padding: 10px 12px;
+  border: 1px solid #ffffff24;
+  border-radius: 8px;
+  background: #000000d9;
+  backdrop-filter: blur(6px);
+  color: #eee;
+  font: 12px/1.5 ui-monospace, monospace;
+}
+
+.debug__head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.debug__fps {
+  color: #7ee787;
+}
+
+.debug-crosshair {
+  position: fixed;
+  z-index: 9;
+  top: 0;
+  left: 0;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  border: 2px solid #ff00c8;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.debug-crosshair::before,
+.debug-crosshair::after {
+  content: '';
+  position: absolute;
+  background: #ff00c8;
+}
+
+.debug-crosshair::before {
+  top: 50%;
+  left: -12px;
+  width: 64px;
+  height: 2px;
+}
+
+.debug-crosshair::after {
+  top: -12px;
+  left: 50%;
+  width: 2px;
+  height: 64px;
+}
+
+.debug__status {
+  margin: 0 0 8px;
+  color: #9fd3ff;
+  font-size: 11px;
+}
+
+.debug__toggle {
+  display: block;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.debug__unit {
+  color: #ffffff6b;
+}
+
+.debug__row {
+  display: grid;
+  grid-template-columns: 1fr 52px 52px;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.debug__row input {
+  width: 100%;
+  padding: 2px 4px;
+  border: 1px solid #ffffff24;
+  border-radius: 4px;
+  background: #ffffff0f;
+  color: inherit;
+  font: inherit;
+}
+
+.debug__copy {
+  width: 100%;
+  margin-top: 8px;
+  padding: 5px;
+  border: 1px solid #ffffff24;
+  border-radius: 4px;
+  background: #ffffff14;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.debug__copy:hover {
+  background: #ffffff24;
+}
+
+/* The travel ellipse: if a pupil ever crosses the sclera, it does so while
+   still inside this ring — which makes it obvious the radii are too large. */
+.show-travel .eye::after {
+  content: '';
+  position: absolute;
+  left: var(--socket-x);
+  top: var(--socket-y);
+  width: calc(var(--eye-w) * var(--travel-x) * 2);
+  height: calc(var(--eye-w) * var(--aspect) * var(--travel-y) * 2);
+  translate: -50% -50%;
+  border: 1px dashed #ff00c8;
+  border-radius: 50%;
+  pointer-events: none;
+}

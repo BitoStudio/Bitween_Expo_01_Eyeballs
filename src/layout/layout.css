@@ -1,0 +1,74 @@
+/* Three feeds, one DOM. Mobile scrolls the feed sideways; tablet and desktop
+   let the page scroll down, which is what makes the desktop columns move as
+   one — a multicol block cannot be height-constrained without spilling
+   sideways, so the scroll must stay on the page. */
+
+.card {
+  position: relative;
+  /* cqw is the unit eyes are sized in, so a card is their container */
+  container-type: inline-size;
+  overflow: hidden;
+}
+
+.card__bg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* --- mobile: one row, swipe left/right --------------------------------- */
+
+.feed {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 100dvh;
+  padding-inline: 10vw;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 10vw;
+  overscroll-behavior-x: contain;
+}
+
+.feed > .card {
+  flex: 0 0 80vw;
+  scroll-snap-align: center;
+}
+
+/* --- tablet: one column, swipe up/down --------------------------------- */
+
+@media (min-width: 768px) {
+  .feed {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    height: auto;
+    max-width: 560px;
+    margin-inline: auto;
+    padding: 24px 16px;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+
+  .feed > .card {
+    flex: 0 0 auto;
+  }
+}
+
+/* --- desktop: four columns that scroll together ------------------------ */
+
+@media (min-width: 1280px) {
+  .feed {
+    display: block;
+    max-width: none;
+    padding: 24px;
+    columns: 4;
+    column-gap: 16px;
+  }
+
+  .feed > .card {
+    break-inside: avoid;
+    margin-bottom: 16px;
+  }
+}

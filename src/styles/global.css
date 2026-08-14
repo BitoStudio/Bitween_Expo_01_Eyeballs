@@ -1,0 +1,31 @@
+:root {
+  --bg: #141414;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  font-family: system-ui, sans-serif;
+  overscroll-behavior: none;
+}
+
+/* Reserve the scrollbar gutter always, so card widths do not jump when the feed
+   grows or shrinks — Phase 4 appends cards while the user is scrolling. */
+html {
+  scrollbar-gutter: stable;
+  overflow-x: hidden;
+}
+
+/* Mobile hands horizontal scrolling to .feed, which is exactly one viewport
+   tall — so the page has nothing to scroll and needs no overflow lock. */
+
+img {
+  max-width: 100%;
+}

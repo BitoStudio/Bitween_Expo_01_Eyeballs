@@ -1,0 +1,48 @@
+/* Sizing flows from a single --eye-w set by the pair; everything else is a
+   ratio of it, so an eye scales with its card without recomputing anything. */
+.eye-pair {
+  position: absolute;
+  left: var(--at-x);
+  top: var(--at-y);
+  translate: -50% -50%;
+  display: flex;
+  gap: calc(var(--eye-w) * var(--gap));
+  pointer-events: none;
+}
+
+.eye {
+  position: relative;
+  width: var(--eye-w);
+  height: calc(var(--eye-w) * var(--aspect));
+}
+
+.eye__sclera,
+.eye__ball {
+  position: absolute;
+  display: block;
+}
+
+.eye__sclera {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.eye--flip .eye__sclera {
+  scale: -1 1;
+}
+
+/* --bx/--by are unitless fractions of the eye box (written by Phase 2), so the
+   pupil offset tracks whatever unit --eye-w resolves to. */
+.eye__ball {
+  left: var(--socket-x);
+  top: var(--socket-y);
+  width: calc(var(--eye-w) * var(--ball-w));
+  height: calc(var(--eye-w) * var(--aspect) * var(--ball-h));
+  translate: -50% -50%;
+  transform: translate3d(
+    calc(var(--eye-w) * var(--bx, 0)),
+    calc(var(--eye-w) * var(--aspect) * var(--by, 0)),
+    0
+  );
+}
