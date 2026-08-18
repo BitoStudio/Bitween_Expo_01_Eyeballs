@@ -7,6 +7,8 @@
     // lets *.selftest.ts run straight through node, which needs the extension
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
+    // vite/client declares import.meta.env; node is needed by the *.selftest.ts
+    "types": ["vite/client", "node"],
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,

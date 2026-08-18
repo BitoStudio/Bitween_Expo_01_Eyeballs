@@ -6,18 +6,25 @@
   "scripts": {
     "prep": "node scripts/prep-assets.mjs",
     "dev": "npm run prep && vite",
-    "test": "node scripts/prep-assets.mjs --selftest && node src/eyes/gaze.selftest.ts && node src/face/mapping.selftest.ts",
+    "dev:lan": "npm run prep && vite --mode lan",
+    "test": "node scripts/prep-assets.mjs --selftest && node src/eyes/gaze.selftest.ts && node src/face/mapping.selftest.ts && node src/layout/wrap.selftest.ts",
     "prebuild": "npm run prep",
     "build": "npm test && tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:pages": "npm test && tsc --noEmit && vite build --base=/Bitween_Expo_01_Eyeballs/"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "pngjs": "^7.0.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.3"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^1.0.1"
+    "@mediapipe/tasks-vision": "^1.0.1",
+    "lenis": "^1.3.26"
+  },
+  "engines": {
+    "node": ">=22.6"
   }
 }
