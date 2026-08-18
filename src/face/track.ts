@@ -71,9 +71,19 @@ export async function startFaceTracking(registry: Registry): Promise<FaceTracker
 
   raf = requestAnimationFrame(loop)
 
+  // rAF stops while the tab is hidden, which parks the detector for free — but
+  // the stream can come back paused, and a paused frame detects nothing.
+  const onVisible = () => {
+    if (document.visibilityState === 'visible' && video.paused) {
+      video.play().catch((err) => console.warn('camera did not resume', err))
+    }
+  }
+  document.addEventListener('visibilitychange', onVisible)
+
   return {
     stop() {
       cancelAnimationFrame(raf)
+      document.removeEventListener('visibilitychange', onVisible)
       detector.close()
       for (const track of (video.srcObject as MediaStream | null)?.getTracks() ?? []) track.stop()
       video.remove()

@@ -1,8 +1,9 @@
 import { FaceDetector, FilesetResolver } from '@mediapipe/tasks-vision'
+import { asset } from '../system/asset'
 
 /** Both self-hosted by scripts/prep-assets.mjs — no CDN at the venue. */
-const WASM_DIR = '/wasm'
-const MODEL = '/models/blaze_face_short_range.tflite'
+const WASM_DIR = asset('wasm')
+const MODEL = asset('models/blaze_face_short_range.tflite')
 
 export type FacePoint = {
   /** Face centre, normalised to the camera frame. */
