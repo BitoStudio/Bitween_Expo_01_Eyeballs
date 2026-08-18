@@ -1,4 +1,4 @@
-import { STYLES } from '../data/styles'
+import { MEASURED, STYLES } from '../data/styles'
 import type { Registry } from '../eyes/registry'
 import type { FaceTracker } from '../face/track'
 import './panel.css'
@@ -25,8 +25,11 @@ export function mountDebugPanel(registry: Registry, tracker: FaceTracker | null 
              value="${registry.getFalloff()}">
       <span class="debug__unit">px</span>
     </div>
+    <div class="debug__legend">
+      <span></span><span>travel x/y</span><span>socket dx/dy</span><span>眼距</span>
+    </div>
     <div class="debug__rows"></div>
-    <button class="debug__copy" type="button">複製 TRAVEL_OVERRIDES</button>`
+    <button class="debug__copy" type="button">複製 EYE_TUNING</button>`
 
   const rows = panel.querySelector('.debug__rows')!
 
@@ -34,25 +37,57 @@ export function mountDebugPanel(registry: Registry, tracker: FaceTracker | null 
     registry.setFalloff(Number((e.target as HTMLInputElement).value))
   })
 
+  /** Gap has no measured baseline, so the panel tracks its own live copy. */
+  const gaps = new Map(registry.styleSlugs().map((slug) => [slug, STYLES[slug]!.gap]))
+
+  /** Offsets are stored relative to the measured socket, which is what
+   *  eye-tuning.ts wants — the panel never deals in absolute sockets. */
+  const offsetOf = (slug: string): [number, number] => {
+    const base = MEASURED[slug]!.socket
+    const live = registry.getSocket(slug)!
+    return [live[0] - base[0], live[1] - base[1]]
+  }
+
   for (const slug of registry.styleSlugs()) {
     const [tx, ty] = registry.getTravel(slug)!
-    const measured = STYLES[slug]!.travel
+    const [dx, dy] = offsetOf(slug)
+    const base = MEASURED[slug]!
     const row = document.createElement('div')
     row.className = 'debug__row'
-    row.innerHTML = `
-      <span title="量測值 ${measured[0]}, ${measured[1]}">${slug}</span>
-      <input type="number" step="0.5" min="0" max="50" value="${(tx * 100).toFixed(1)}" data-axis="x">
-      <input type="number" step="0.5" min="0" max="50" value="${(ty * 100).toFixed(1)}" data-axis="y">`
+    const num = (value: number, min: number, max: number, step = 0.5) =>
+      `<input type="number" step="${step}" min="${min}" max="${max}" value="${value}">`
+    row.innerHTML =
+      `<span title="量測值 travel ${base.travel[0]},${base.travel[1]} · socket ${base.socket[0]},${base.socket[1]}">${slug}</span>` +
+      num(+(tx * 100).toFixed(1), 0, 50) +
+      num(+(ty * 100).toFixed(1), 0, 50) +
+      num(+dx.toFixed(1), -40, 40) +
+      num(+dy.toFixed(1), -40, 40) +
+      num(STYLES[slug]!.gap, -1, 2, 0.05)
 
     row.addEventListener('input', () => {
-      const [ix, iy] = row.querySelectorAll('input')
-      const next: [number, number] = [Number(ix!.value) / 100, Number(iy!.value) / 100]
-      registry.setTravel(slug, next)
-      // keep the overlay ellipse in step with the value being tuned
+      const [travelX, travelY, socketDX, socketDY, gap] = [...row.querySelectorAll('input')].map(
+        (i) => Number(i.value),
+      )
+      const travel: [number, number] = [travelX! / 100, travelY! / 100]
+      const socket: [number, number] = [base.socket[0] + socketDX!, base.socket[1] + socketDY!]
+      registry.setTravel(slug, travel)
+      registry.setSocket(slug, socket)
+
+      // keep the rendered pupil and the overlay ellipse on the tuned centre
       for (const eye of document.querySelectorAll<HTMLElement>(`.eye[data-style="${slug}"]`)) {
-        eye.style.setProperty('--travel-x', String(next[0]))
-        eye.style.setProperty('--travel-y', String(next[1]))
+        const flip = eye.classList.contains('eye--flip')
+        eye.style.setProperty('--socket-x', `${flip ? 100 - socket[0] : socket[0]}%`)
+        eye.style.setProperty('--socket-y', `${socket[1]}%`)
+        eye.style.setProperty('--travel-x', String(travel[0]))
+        eye.style.setProperty('--travel-y', String(travel[1]))
       }
+      // spacing moves the eyes, so the cached positions have to go
+      for (const pair of document.querySelectorAll<HTMLElement>('.eye-pair')) {
+        if (pair.querySelector('.eye')?.getAttribute('data-style') !== slug) continue
+        pair.style.setProperty('--gap', String(gap))
+      }
+      gaps.set(slug, gap!)
+      registry.invalidate()
     })
     rows.append(row)
   }
@@ -66,10 +101,16 @@ export function mountDebugPanel(registry: Registry, tracker: FaceTracker | null 
       .styleSlugs()
       .map((slug) => {
         const [x, y] = registry.getTravel(slug)!
-        return `  ${slug}: [${(x * 100).toFixed(1)}, ${(y * 100).toFixed(1)}],`
+        const [dx, dy] = offsetOf(slug)
+        return (
+          `  ${slug}: { travel: [${(x * 100).toFixed(1)}, ${(y * 100).toFixed(1)}], ` +
+          `socketOffset: [${dx.toFixed(1)}, ${dy.toFixed(1)}], gap: ${gaps.get(slug)} },`
+        )
       })
       .join('\n')
-    const snippet = `const TRAVEL_OVERRIDES: Overrides = {\n${body}\n}`
+    const snippet =
+      `export const EYE_TUNING: Partial<Record<StyleSlug, EyeTuning>> = {\n${body}\n}\n` +
+      `// drop a \`travel\` entry to fall back to whatever prep-assets measures`
     const button = e.currentTarget as HTMLButtonElement
     try {
       await navigator.clipboard.writeText(snippet)
@@ -79,7 +120,7 @@ export function mountDebugPanel(registry: Registry, tracker: FaceTracker | null 
       console.log(snippet)
       button.textContent = '已輸出到 console'
     }
-    setTimeout(() => (button.textContent = '複製 TRAVEL_OVERRIDES'), 1600)
+    setTimeout(() => (button.textContent = '複製 EYE_TUNING'), 1600)
   })
 
   // Sits on the mirrored camera image where the system thinks the face is.

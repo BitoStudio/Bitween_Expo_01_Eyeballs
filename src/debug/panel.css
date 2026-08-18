@@ -3,7 +3,7 @@
   z-index: 10;
   right: 12px;
   bottom: 12px;
-  width: 236px;
+  width: 452px;
   padding: 10px 12px;
   border: 1px solid #ffffff24;
   border-radius: 8px;
@@ -75,10 +75,36 @@
 
 .debug__row {
   display: grid;
-  grid-template-columns: 1fr 52px 52px;
+  grid-template-columns: 1fr 62px 62px 62px 62px 62px;
   gap: 4px;
   align-items: center;
   margin-bottom: 4px;
+}
+
+.debug__legend {
+  display: grid;
+  grid-template-columns: 1fr 128px 128px 62px;
+  gap: 4px;
+  margin-bottom: 3px;
+  color: #ffffff6b;
+  font-size: 10px;
+  text-align: center;
+}
+
+/* falloff has a single input, so it borrows the row grid's first column only */
+.debug__row:has(.debug__falloff) {
+  grid-template-columns: 1fr 62px auto;
+}
+
+/* spinners eat the digits at this width, and the values must stay readable */
+.debug__row input {
+  appearance: textfield;
+}
+
+.debug__row input::-webkit-outer-spin-button,
+.debug__row input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
 }
 
 .debug__row input {
