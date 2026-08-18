@@ -16,11 +16,15 @@ body {
   overscroll-behavior: none;
 }
 
-/* Reserve the scrollbar gutter always, so card widths do not jump when the feed
-   grows or shrinks — Phase 4 appends cards while the user is scrolling. */
+/* No scrollbars: the feed wraps around forever, so a thumb would only ever
+   report a meaningless position and jump at the seam. */
 html {
-  scrollbar-gutter: stable;
   overflow-x: hidden;
+  scrollbar-width: none;
+}
+
+::-webkit-scrollbar {
+  display: none;
 }
 
 /* Mobile hands horizontal scrolling to .feed, which is exactly one viewport

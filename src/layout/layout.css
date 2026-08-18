@@ -1,7 +1,6 @@
-/* Three feeds, one DOM. Mobile scrolls the feed sideways; tablet and desktop
-   let the page scroll down, which is what makes the desktop columns move as
-   one — a multicol block cannot be height-constrained without spilling
-   sideways, so the scroll must stay on the page. */
+/* One DOM, three feeds. The cards always live inside four column boxes; below
+   1280px those boxes are dissolved with `display: contents` and the cards
+   reflow into a single flat list, so changing breakpoint rebuilds nothing. */
 
 .card {
   position: relative;
@@ -31,7 +30,11 @@
   overscroll-behavior-x: contain;
 }
 
-.feed > .card {
+.feed__col {
+  display: contents;
+}
+
+.feed .card {
   flex: 0 0 80vw;
   scroll-snap-align: center;
 }
@@ -51,24 +54,39 @@
     scroll-snap-type: none;
   }
 
-  .feed > .card {
+  .feed .card {
     flex: 0 0 auto;
   }
 }
 
-/* --- desktop: four columns that scroll together ------------------------ */
+/* --- desktop: four columns drifting in opposite directions ------------- */
 
 @media (min-width: 1280px) {
   .feed {
-    display: block;
+    flex-direction: row;
+    align-items: flex-start;
     max-width: none;
-    padding: 24px;
-    columns: 4;
-    column-gap: 16px;
+    height: 100dvh;
+    padding: 0 24px;
+    /* the columns translate past the edges; nothing may spill or scroll */
+    overflow: hidden;
   }
 
-  .feed > .card {
-    break-inside: avoid;
+  .feed__col {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    will-change: transform;
+  }
+
+  /* margin, not gap: every card must contribute the same height so one
+     repeat of the sequence is exactly one wrap period */
+  .feed__col > .card {
+    flex: none;
     margin-bottom: 16px;
+  }
+
+  .feed__col + .feed__col {
+    margin-left: 16px;
   }
 }
