@@ -8,10 +8,9 @@
     "dev": "npm run prep && vite",
     "dev:lan": "npm run prep && vite --mode lan",
     "test": "node scripts/prep-assets.mjs --selftest && node src/eyes/gaze.selftest.ts && node src/face/mapping.selftest.ts && node src/layout/wrap.selftest.ts",
-    "prebuild": "npm run prep",
-    "build": "npm test && tsc --noEmit && vite build",
+    "build": "npm run prep && npm test && tsc --noEmit && vite build",
     "preview": "vite preview",
-    "build:pages": "npm test && tsc --noEmit && vite build --base=/Bitween_Expo_01_Eyeballs/"
+    "build:pages": "npm run prep && npm test && tsc --noEmit && vite build --base=/Bitween_Expo_01_Eyeballs/"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
