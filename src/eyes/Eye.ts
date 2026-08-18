@@ -1,5 +1,6 @@
 import { STYLES } from '../data/styles'
 import './eye.css'
+import { asset } from '../system/asset'
 
 export type EyeOptions = {
   /** Mirrors the sclera art. The art is drawn as a right eye, so the left
@@ -31,8 +32,8 @@ export function createEye(slug: string, { flip = false }: EyeOptions = {}): HTML
   el.style.setProperty('--travel-x', String(g.travel[0] / 100))
   el.style.setProperty('--travel-y', String(g.travel[1] / 100))
   el.innerHTML =
-    `<img class="eye__sclera" src="/styles/${slug}/eye.png" alt="" decoding="async">` +
-    `<img class="eye__ball" src="/styles/${slug}/ball.png" alt="" decoding="async">`
+    `<img class="eye__sclera" src="${asset(`styles/${slug}/eye.png`)}" alt="" decoding="async">` +
+    `<img class="eye__ball" src="${asset(`styles/${slug}/ball.png`)}" alt="" decoding="async">`
   return el
 }
 
@@ -41,8 +42,6 @@ export type EyePairOptions = {
   at: readonly [number, number]
   /** Eye width as a percentage of the card width. */
   size: number
-  /** Space between the two eyes, in multiples of one eye width. */
-  gap?: number
   /**
    * Rotates the pair as one rigid body about its centre, in degrees — the
    * arrangement leans and both eyes lean with it.
@@ -54,16 +53,17 @@ export type EyePairOptions = {
  * A pair of eyes, placed on a card as a single unit.
  * The art is drawn as a right eye, so the left one is the mirrored copy.
  */
-export function createEyePair(
-  slug: string,
-  { at, size, gap = 0.25, tilt = 0 }: EyePairOptions,
-): HTMLElement {
+export function createEyePair(slug: string, { at, size, tilt = 0 }: EyePairOptions): HTMLElement {
+  const style = STYLES[slug]
+  if (!style) throw new Error(`createEyePair: unknown style "${slug}"`)
+
   const pair = document.createElement('div')
   pair.className = 'eye-pair'
   pair.style.setProperty('--at-x', `${at[0]}%`)
   pair.style.setProperty('--at-y', `${at[1]}%`)
   pair.style.setProperty('--eye-w', `${size}cqw`)
-  pair.style.setProperty('--gap', String(gap))
+  // spacing belongs to the style, not the card — see eye-tuning.ts
+  pair.style.setProperty('--gap', String(style.gap))
   // rotate: origin is the pair's own centre, so the group turns about its
   // midpoint rather than swinging around one eye
   if (tilt) pair.style.rotate = `${tilt}deg`

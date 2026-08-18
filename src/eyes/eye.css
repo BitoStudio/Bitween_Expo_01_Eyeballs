@@ -6,12 +6,21 @@
   top: var(--at-y);
   translate: -50% -50%;
   display: flex;
-  gap: calc(var(--eye-w) * var(--gap));
   pointer-events: none;
 }
 
+/* Spacing is a margin, not `gap`, because a negative value has to be legal —
+   styles like simpson want the two eyes overlapping. */
+.eye + .eye {
+  margin-left: calc(var(--eye-w) * var(--gap));
+}
+
+/* isolate makes each eye paint atomically, so an overlapping pair puts one
+   eye — pupil included — cleanly on top of the other instead of interleaving
+   the two sclera/pupil layers. The right eye is second in the DOM, so it wins. */
 .eye {
   position: relative;
+  isolation: isolate;
   width: var(--eye-w);
   height: calc(var(--eye-w) * var(--aspect));
 }

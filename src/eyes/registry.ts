@@ -22,6 +22,9 @@ type Entry = {
   /** cos/sin of the eye's rotation, for converting into its local frame. */
   cos: number
   sin: number
+  /** Index of the drifting column this eye rides, or -1 when the layout is
+   *  a plain scrolling list. */
+  col: number
   bx: number
   by: number
 }
@@ -46,6 +49,8 @@ export function createRegistry(scroller: HTMLElement) {
   let target = { x: 0, y: 0 }
   let smooth = { x: 0, y: 0 }
   let falloff = FALLOFF_PX
+  /** Live per-column drift offsets, when the desktop layout is running. */
+  let columnOffsets: readonly number[] = []
   // scales every offset: eases the pupils back to rest when the face is lost
   let gain = 0
   let wantGain = 0
@@ -76,10 +81,12 @@ export function createRegistry(scroller: HTMLElement) {
         const ball = eye.querySelector<HTMLElement>('.eye__ball')
         if (!slug || !style || !ball) throw new Error('registry: malformed eye element')
         if (!travel.has(slug)) travel.set(slug, [style.travel[0] / 100, style.travel[1] / 100])
+        if (!sockets.has(slug)) sockets.set(slug, [style.socket[0], style.socket[1]])
         const rad = (Number(eye.dataset.tilt ?? 0) * Math.PI) / 180
+        const col = Number(eye.closest<HTMLElement>('.feed__col')?.dataset.col ?? -1)
         // prettier-ignore
         entries.push({
-          eye, ball, pair, slug,
+          eye, ball, pair, slug, col,
           x: 0, y: 0, cos: Math.cos(rad), sin: Math.sin(rad), bx: 0, by: 0,
         })
       }
@@ -92,17 +99,20 @@ export function createRegistry(scroller: HTMLElement) {
     const ox = window.scrollX + scroller.scrollLeft
     const oy = window.scrollY + scroller.scrollTop
     for (const e of entries) {
-      const style = STYLES[e.slug]!
+      const [tunedX, tunedY] = sockets.get(e.slug)!
       const flip = e.eye.classList.contains('eye--flip')
-      const socketX = flip ? 100 - style.socket[0] : style.socket[0]
+      const socketX = flip ? 100 - tunedX : tunedX
       const r = e.eye.getBoundingClientRect()
       // A rotated element's rect is its bounding box, so only the centre is
       // trustworthy; offsetWidth/Height give the unrotated layout size.
       const localX = (socketX / 100 - 0.5) * e.eye.offsetWidth
-      const localY = (style.socket[1] / 100 - 0.5) * e.eye.offsetHeight
-      // gaze originates at the socket, which is off-centre in several styles
+      const localY = (tunedY / 100 - 0.5) * e.eye.offsetHeight
+      // gaze originates at the socket, which is off-centre in several styles.
+      // The rect already includes the column's current drift, so add it back:
+      // the cache holds an untransformed position that frame() re-offsets.
+      const drift = e.col >= 0 ? (columnOffsets[e.col] ?? 0) : 0
       e.x = r.left + r.width / 2 + localX * e.cos - localY * e.sin + ox
-      e.y = r.top + r.height / 2 + localX * e.sin + localY * e.cos + oy
+      e.y = r.top + r.height / 2 + localX * e.sin + localY * e.cos + oy + drift
     }
     stale = false
   }
@@ -119,8 +129,9 @@ export function createRegistry(scroller: HTMLElement) {
     for (const e of entries) {
       if (!visible.has(e.pair)) continue
       const [tx, ty] = travel.get(e.slug)!
+      const drift = e.col >= 0 ? (columnOffsets[e.col] ?? 0) : 0
       const vx = smooth.x - (e.x - ox)
-      const vy = smooth.y - (e.y - oy)
+      const vy = smooth.y - (e.y - oy - drift)
       // into the eye's own frame: the pupil translates inside a rotated box,
       // so a tilted eye still aims at the target rather than beside it
       const [rawX, rawY] = gazeOffset(
@@ -170,10 +181,22 @@ export function createRegistry(scroller: HTMLElement) {
     invalidate() {
       stale = true
     },
+    /** Live offsets of the drifting desktop columns, read every frame. Pass an
+     *  empty array when the layout is a plain scrolling list. */
+    useColumnOffsets(next: readonly number[]) {
+      columnOffsets = next
+      stale = true
+    },
     getTravel: (slug: string) => travel.get(slug),
     /** Live tuning from the debug panel. Values are fractions of the eye box. */
     setTravel(slug: string, value: [number, number]) {
       travel.set(slug, value)
+    },
+    getSocket: (slug: string) => sockets.get(slug),
+    /** Ellipse centre in percent of the eye box, before mirroring. */
+    setSocket(slug: string, value: [number, number]) {
+      sockets.set(slug, value)
+      stale = true
     },
     styleSlugs: () => [...travel.keys()],
     start() {
