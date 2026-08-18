@@ -13,14 +13,22 @@ export type EyeStyle = {
   readonly ballSize: readonly [number, number]
   /** Radii of the ellipse the pupil may travel within. Verified against the art. */
   readonly travel: readonly [number, number]
+  /** Space between a pair's two eyes, in multiples of one eye width. */
+  readonly gap: number
   readonly bgSize: readonly [number, number]
 }
+
+/** Nothing in the art says how far apart a pair should sit, so this is just a
+ *  sane starting point for a style with no `gap` in eye-tuning.ts. */
+const DEFAULT_GAP = 0.25
 
 export type StyleSlug = keyof typeof generated
 
 /** Straight from the art, before any tuning — the debug panel needs the
  *  baseline to express its edits as offsets. */
-export const MEASURED: Record<string, EyeStyle> = generated
+export const MEASURED: Record<string, EyeStyle> = Object.fromEntries(
+  Object.entries(generated).map(([slug, style]) => [slug, { ...style, gap: DEFAULT_GAP }]),
+)
 
 export const STYLES: Record<string, EyeStyle> = Object.fromEntries(
   Object.entries(generated).map(([slug, style]) => {
@@ -32,6 +40,7 @@ export const STYLES: Record<string, EyeStyle> = Object.fromEntries(
         ...style,
         travel: tuning?.travel ?? style.travel,
         socket: [style.socket[0] + dx, style.socket[1] + dy],
+        gap: tuning?.gap ?? DEFAULT_GAP,
       },
     ]
   }),

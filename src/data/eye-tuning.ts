@@ -21,12 +21,26 @@ export type EyeTuning = {
    * the eye; mirrored for the left eye so a pair stays symmetric.
    */
   socketOffset?: readonly [number, number]
+  /**
+   * Space between the two eyes of a pair, in multiples of one eye width.
+   * Negative overlaps them — the right eye then sits on top, pupil included.
+   */
+  gap?: number
+  /**
+   * Lets the pupil travel past the edge of the sclera art. `npm run prep`
+   * fails on that by default, so anything overflowing is a deliberate,
+   * recorded decision rather than a typo that survived to the venue.
+   */
+  allowOverflow?: boolean
 }
 
 export const EYE_TUNING: Partial<Record<StyleSlug, EyeTuning>> = {
-  bitostyle: { socketOffset: [0, 0] },
-  girl: { socketOffset: [0, 0] },
-  cool: { socketOffset: [0, 0] },
-  simpson: { socketOffset: [0, 0] },
-  sponge: { socketOffset: [0, 0] },
+  bitostyle: { socketOffset: [0, 0], gap: 0.3 },
+  // Art direction: the pupil sits high, like the artist drew it, and is meant
+  // to ride past the lid at extreme angles. Checked on screen and kept.
+  cool: { travel: [31.5, 38], socketOffset: [0, -15], gap: 0.22, allowOverflow: true },
+  // the two circles are meant to touch and overlap
+  simpson: { socketOffset: [0, 0], gap: -0.15 },
+  sponge: { socketOffset: [0, 0], gap: 0.3 },
+  girl: { travel: [20, 19], socketOffset: [-20, 0], gap: 0.4 },
 }
