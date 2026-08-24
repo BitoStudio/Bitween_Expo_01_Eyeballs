@@ -62,14 +62,22 @@ export function createEyePair(slug: string, { at, size, tilt = 0 }: EyePairOptio
   pair.style.setProperty('--at-x', `${at[0]}%`)
   pair.style.setProperty('--at-y', `${at[1]}%`)
   pair.style.setProperty('--eye-w', `${size}cqw`)
-  // spacing belongs to the style, not the card — see eye-tuning.ts
-  pair.style.setProperty('--gap', String(style.gap))
   // rotate: origin is the pair's own centre, so the group turns about its
   // midpoint rather than swinging around one eye
   if (tilt) pair.style.rotate = `${tilt}deg`
-  pair.append(createEye(slug, { flip: true }), createEye(slug))
 
-  // both eyes inherit the rotation; the registry reads it per eye to keep a
+  if (style.singleEye) {
+    // some characters (Mike) only have the one eye — no mirror, no gap.
+    // The wrapper stays called .eye-pair: registry and the debug panel treat
+    // it as "a group of eyes", not "exactly two eyes", so nothing else changes.
+    pair.append(createEye(slug))
+  } else {
+    // spacing belongs to the style, not the card — see eye-tuning.ts
+    pair.style.setProperty('--gap', String(style.gap))
+    pair.append(createEye(slug, { flip: true }), createEye(slug))
+  }
+
+  // every eye inherits the rotation; the registry reads it per eye to keep a
   // tilted eye aiming at the target rather than beside it
   if (tilt) {
     for (const eye of pair.querySelectorAll<HTMLElement>('.eye')) eye.dataset.tilt = String(tilt)

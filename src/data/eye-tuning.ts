@@ -32,6 +32,11 @@ export type EyeTuning = {
    * recorded decision rather than a typo that survived to the venue.
    */
   allowOverflow?: boolean
+  /**
+   * The character only has the one eye (Mike) — createEyePair renders a
+   * single unmirrored eye instead of a pair. `gap` is then ignored.
+   */
+  singleEye?: boolean
 }
 
 export const EYE_TUNING: Partial<Record<StyleSlug, EyeTuning>> = {
@@ -43,4 +48,11 @@ export const EYE_TUNING: Partial<Record<StyleSlug, EyeTuning>> = {
   simpson: { socketOffset: [0, 0], gap: -0.15 },
   sponge: { socketOffset: [0, 0], gap: 0.3 },
   girl: { travel: [20, 19], socketOffset: [-20, 0], gap: 0.4 },
+  doraemon: { socketOffset: [0, 0], gap: 0.3 },
+  // reuses bitostyle's eye/ball art byte-for-byte (only the bg differs), so
+  // the same gap keeps the pair looking the same as it does on bitostyle
+  fashion: { socketOffset: [0, 0], gap: 0.3 },
+  perry: { socketOffset: [0, 0], gap: 0.22 },
+  // Mike Wazowski: one eye, no partner to space against
+  mike: { socketOffset: [0, 0], singleEye: true },
 }

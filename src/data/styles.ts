@@ -15,6 +15,8 @@ export type EyeStyle = {
   readonly travel: readonly [number, number]
   /** Space between a pair's two eyes, in multiples of one eye width. */
   readonly gap: number
+  /** A character drawn with just the one eye (Mike) — no mirror, no gap. */
+  readonly singleEye: boolean
   readonly bgSize: readonly [number, number]
 }
 
@@ -27,7 +29,10 @@ export type StyleSlug = keyof typeof generated
 /** Straight from the art, before any tuning — the debug panel needs the
  *  baseline to express its edits as offsets. */
 export const MEASURED: Record<string, EyeStyle> = Object.fromEntries(
-  Object.entries(generated).map(([slug, style]) => [slug, { ...style, gap: DEFAULT_GAP }]),
+  Object.entries(generated).map(([slug, style]) => [
+    slug,
+    { ...style, gap: DEFAULT_GAP, singleEye: false },
+  ]),
 )
 
 export const STYLES: Record<string, EyeStyle> = Object.fromEntries(
@@ -41,6 +46,7 @@ export const STYLES: Record<string, EyeStyle> = Object.fromEntries(
         travel: tuning?.travel ?? style.travel,
         socket: [style.socket[0] + dx, style.socket[1] + dy],
         gap: tuning?.gap ?? DEFAULT_GAP,
+        singleEye: tuning?.singleEye ?? false,
       },
     ]
   }),
