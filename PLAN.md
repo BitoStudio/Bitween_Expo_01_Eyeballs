@@ -297,6 +297,38 @@ travel 值只要調到「橢圓內切於眼白」即可，這是唯一要人工�
 
 ---
 
+## 5.1 追加樣式：doraemon / fashion / perry / mike
+
+美術後續補了四種樣式，用「原本的方式」（Phase 0 的 `npm run prep` 流程）加入：
+
+- `Assets/9_Mike_只有一顆眼睛/` 改名為 `Assets/9_Mike/`。folder 名稱會被 prep 拿去當 slug，
+  中文會直接進 URL 和 CSS 屬性值，改成乾淨的 ASCII 才跟其他樣式一致
+- `fashion` 的 `fashion_eye.png` / `fashion_ball.png` 跟 `bitostyle` 的**位元組完全相同**（MD5 一致），
+  只有 `fashion_bg.png` 不同 —— 已跟美術確認是**刻意共用眼睛素材**，不是漏放檔案
+- `mike`（Mike Wazowski）**只有一顆眼睛**，不是鏡像對。這是第一個打破「每個樣式都是一對鏡像眼睛」
+  假設的樣式，因此加了一個結構性欄位：`EyeTuning.singleEye`（`eye-tuning.ts`），
+  `createEyePair()`（`Eye.ts`）依此分流成單眼版本。`.eye-pair` 這個 wrapper class 名稱沒改，
+  因為 registry 和 debug panel 本來就是「找裡面的 `.eye` 子元素」，不是寫死兩顆，
+  單眼可以直接沿用整條管線，不必碰 `registry.ts`
+- 四種新素材皆通過 `npm run prep` 的溢出檢查（0 溢出，doraemon/perry/mike 三個還有 headroom）；
+  疊圖驗證（8 方向 travel 極限 + 靜止位置）人工看過，瞳孔都在眼白內
+- 卡片各加 3 張（mike 也是 3 張，單眼版位跟雙眼共用同一套 `at`/`size`/`tilt` 參數），
+  依各背景的留白區手動排版：doraemon 文字幾乎鋪滿全卡，只有最頂端留白；
+  fashion 沿用 bitostyle 眼睛但背景文字改在左側，眼睛移到右側空白；
+  perry 文字集中右側與下半，眼睛擺左上角；mike 沒有文字，避開圖案中央的粗黑對角線即可
+- ❌ **未驗證**：這批新增在瀏覽器裡的即時動態表現。開發用的窗格這次完全不合成畫面，
+  連 rAF 都凍結，連舊樣式都量不到位移，不是新樣式獨有的問題。已確認的是靜態部分：
+  build 通過、四個 selftest 通過、9 種樣式的圖檔在瀏覽器裡實際請求皆 200（無 404）、
+  DOM 結構正確（mike 每組恰好 1 顆眼睛、無鏡像、無 gap）。**注視方向與捲動時的手感仍需實機看過**
+- ⚠️ **修正**：`cards.ts` 一開始是照樣式分區塊寫的（doraemon 三張連在一起、fashion 三張連在一起…），
+  桌機四欄用固定 8 張的視窗切這份清單，切到區塊中段的欄位會連續看到三次同一種眼睛
+  （`col2: doraemon,doraemon,doraemon,fashion,fashion,fashion`）。改成 round-robin 排列
+  —— 每輪從九種樣式各拿一張，輪完才輪下一張，個別卡片的 `at`/`size`/`tilt` 沒變，只是重排順序。
+  加了 `cards.selftest.ts`：斷言 `CARDS` 裡任兩個相鄰項目（含頭尾繞回，因為 columns.ts 是
+  循環取視窗）不會同樣式，接進 `npm test`，往後加樣式踩到同一個坑會直接卡在建置階段
+
+---
+
 ## 6. 最終驗收清單
 
 - [ ] 瞳孔不出眼眶 —— **`cool` 除外**。美術指定瞳孔偏高且極限角度會超出眼白，
