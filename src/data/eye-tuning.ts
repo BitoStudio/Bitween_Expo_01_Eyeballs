@@ -40,19 +40,19 @@ export type EyeTuning = {
 }
 
 export const EYE_TUNING: Partial<Record<StyleSlug, EyeTuning>> = {
-  bitostyle: { socketOffset: [0, 0], gap: 0.3 },
-  // Art direction: the pupil sits high, like the artist drew it, and is meant
-  // to ride past the lid at extreme angles. Checked on screen and kept.
-  cool: { travel: [31.5, 38], socketOffset: [0, -15], gap: 0.22, allowOverflow: true },
-  // the two circles are meant to touch and overlap
-  simpson: { socketOffset: [0, 0], gap: -0.15 },
-  sponge: { socketOffset: [0, 0], gap: 0.3 },
-  girl: { travel: [20, 19], socketOffset: [-20, 0], gap: 0.4 },
-  doraemon: { socketOffset: [0, 0], gap: 0.3 },
-  // reuses bitostyle's eye/ball art byte-for-byte (only the bg differs), so
-  // the same gap keeps the pair looking the same as it does on bitostyle
-  fashion: { socketOffset: [0, 0], gap: 0.3 },
-  perry: { socketOffset: [0, 0], gap: 0.22 },
-  // Mike Wazowski: one eye, no partner to space against
-  mike: { socketOffset: [0, 0], singleEye: true },
+  // Art direction: the pupil sits high and rides well past the lid at extreme
+  // angles — over half its area at the worst angle, and it already clips
+  // slightly at rest. Checked on screen and kept.
+  cool: { travel: [40.5, 18.5], socketOffset: [0.0, -32.5], gap: 0.25, allowOverflow: true },
+  simpson: { travel: [31.1, 28.5], socketOffset: [0.0, 0.0], gap: -0.15 },
+  sponge: { travel: [20.1, 17.0], socketOffset: [0.0, 0.0], gap: -0.03 },
+  girl: { travel: [13.0, 14.0], socketOffset: [-20.0, 0.0], gap: 0.25 },
+  bitostyle: { travel: [16.0, 7.5], socketOffset: [0.0, 0.0], gap: 0.25 },
+  doraemon: { travel: [23.9, 22.3], socketOffset: [0.0, 0.0], gap: -0.03 },
+  fashion: { travel: [26.0, 9.0], socketOffset: [0.0, 0.0], gap: 0 },
+  perry: { travel: [19.5, 16.3], socketOffset: [-2.5, 0.0], gap: 0.3 },
+  // Mike Wazowski: one eye, no partner to space against. Not something the
+  // debug panel's copy button exports — singleEye is a structural flag, not
+  // a slider — so it has to survive every panel-sourced replacement by hand.
+  mike: { travel: [22.1, 20.3], socketOffset: [0.0, 0.0], gap: 0.25, singleEye: true },
 }
