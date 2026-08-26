@@ -1,5 +1,6 @@
 import { STYLES } from '../data/styles'
 import { gazeOffset } from './gaze'
+import { initialWander, stepWander, type WanderState } from './wander'
 
 /** Distance at which a target deflects the pupil fully. */
 const FALLOFF_PX = 400
@@ -32,7 +33,9 @@ type Entry = {
 export type Registry = ReturnType<typeof createRegistry>
 
 /**
- * Drives every pupil from one target point.
+ * Drives every pupil, crossfading between two sources by `gain`: with nothing
+ * found, each eye pair wanders its own glance (wander.ts); once a target is
+ * set, every pair converges on that one shared point instead.
  *
  * Positions are cached in document space and corrected by live scroll offsets
  * each frame, so scrolling never triggers a layout read. `scroller` is the
@@ -46,6 +49,10 @@ export function createRegistry(scroller: HTMLElement) {
    *  already folds in eye-tuning.ts; the debug panel overwrites it live. */
   const sockets = new Map<string, [number, number]>()
   const visible = new Set<Element>()
+  /** One independent idle-glance state per eye group (both eyes of a pair
+   *  share it, so they glance together — just not together with anyone else's
+   *  pair). Keyed by the .eye-pair element itself. */
+  const wander = new Map<Element, WanderState>()
   let target = { x: 0, y: 0 }
   let smooth = { x: 0, y: 0 }
   let falloff = FALLOFF_PX
@@ -75,6 +82,7 @@ export function createRegistry(scroller: HTMLElement) {
 
   function addAll(root: ParentNode) {
     for (const pair of root.querySelectorAll('.eye-pair')) {
+      if (!wander.has(pair)) wander.set(pair, initialWander(performance.now()))
       for (const eye of pair.querySelectorAll<HTMLElement>('.eye')) {
         const slug = eye.dataset.style
         const style = slug ? STYLES[slug] : undefined
@@ -119,10 +127,18 @@ export function createRegistry(scroller: HTMLElement) {
 
   function frame() {
     raf = requestAnimationFrame(frame)
+    const now = performance.now()
     smooth.x += (target.x - smooth.x) * SMOOTHING
     smooth.y += (target.y - smooth.y) * SMOOTHING
     gain += (wantGain - gain) * SMOOTHING
     if (stale) rebuild()
+
+    // one idle-glance step per visible pair — `visible` is a Set, so a pair
+    // with two eyes still only advances once
+    for (const pair of visible) {
+      const w = wander.get(pair)
+      if (w) wander.set(pair, stepWander(w, now))
+    }
 
     const ox = window.scrollX + scroller.scrollLeft
     const oy = window.scrollY + scroller.scrollTop
@@ -134,15 +150,27 @@ export function createRegistry(scroller: HTMLElement) {
       const vy = smooth.y - (e.y - oy - drift)
       // into the eye's own frame: the pupil translates inside a rotated box,
       // so a tilted eye still aims at the target rather than beside it
-      const [rawX, rawY] = gazeOffset(
+      const [trackedX, trackedY] = gazeOffset(
         vx * e.cos + vy * e.sin,
         vy * e.cos - vx * e.sin,
         tx,
         ty,
         falloff,
       )
-      const bx = rawX * gain
-      const by = rawY * gain
+      // Idle-glance point is already a fraction of this eye's own travel
+      // ellipse (see wander.ts), not a real point to aim at, so it skips the
+      // rotation compensation above — a uniformly random direction stays
+      // uniformly random after a fixed rotation, so there is nothing to gain
+      // from compensating it.
+      const w = wander.get(e.pair)!
+      const wanderX = w.x * tx
+      const wanderY = w.y * ty
+      // gain is the crossfade: 0 = every pair glances on its own, 1 = every
+      // pair looks at the same found target. Both operands sit inside the
+      // travel ellipse already, and the ellipse is convex, so the blend
+      // can't ever push the pupil past either one's own bound.
+      const bx = wanderX * (1 - gain) + trackedX * gain
+      const by = wanderY * (1 - gain) + trackedY * gain
       if (Math.abs(bx - e.bx) < EPSILON && Math.abs(by - e.by) < EPSILON) continue
       e.bx = bx
       e.by = by
@@ -165,7 +193,8 @@ export function createRegistry(scroller: HTMLElement) {
       smooth = { x, y }
       wantGain = 1
     },
-    /** Nothing to look at: ease every pupil back to centre and stay there. */
+    /** Nothing to look at: each pair eases off the shared target and back to
+     *  wandering its own glance (see wander.ts) instead of sitting still. */
     releaseTarget() {
       wantGain = 0
     },

@@ -7,7 +7,7 @@
     "prep": "node scripts/prep-assets.mjs",
     "dev": "npm run prep && vite",
     "dev:lan": "npm run prep && vite --mode lan",
-    "test": "node scripts/prep-assets.mjs --selftest && node src/eyes/gaze.selftest.ts && node src/face/mapping.selftest.ts && node src/layout/wrap.selftest.ts && node src/data/cards.selftest.ts",
+    "test": "node scripts/prep-assets.mjs --selftest && node src/eyes/gaze.selftest.ts && node src/eyes/wander.selftest.ts && node src/face/mapping.selftest.ts && node src/layout/wrap.selftest.ts && node src/data/cards.selftest.ts",
     "build": "npm run prep && npm test && tsc --noEmit && vite build",
     "preview": "vite preview",
     "build:pages": "npm run prep && npm test && tsc --noEmit && vite build --base=/Bitween_Expo_01_Eyeballs/"
