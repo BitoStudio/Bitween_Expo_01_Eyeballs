@@ -14,6 +14,8 @@ body {
   background: var(--bg);
   font-family: system-ui, sans-serif;
   overscroll-behavior: none;
+  touch-action: none;
+  cursor: none;
 }
 
 /* No scrollbars: the feed wraps around forever, so a thumb would only ever
