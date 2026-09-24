@@ -1,4 +1,13 @@
 {
-    "name": "Bitween Expo",
-    "display": "standalone"
+    "name": "Bitween Expo 01",
+    "short_name": "Bitween",
+    "start_url": "/Bitween_Expo_01_Eyeballs",
+    "display": "standalone",
+    "icons": [
+        {
+            "src": "./icon.png",
+            "type": "image/png",
+            "sizes": "512x512"
+        }
+    ]
 }
