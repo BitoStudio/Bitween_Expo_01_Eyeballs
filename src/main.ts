@@ -45,7 +45,7 @@ new ResizeObserver(() => {
 // if the camera never arrives — an expo screen must never sit dead.
 const onPointer = (e: PointerEvent) => registry.setTarget(e.clientX, e.clientY)
 addEventListener('pointermove', onPointer, { passive: true })
-addEventListener('click', () => document.querySelector('.feed')?.requestPointerLock())
+addEventListener('click', () => { if(!matchMedia('(pointer: coarse)').matches) document.querySelector('.feed')?.requestPointerLock() })
 
 const tracker = await import('./face/track')
   .then(({ startFaceTracking }) => startFaceTracking(registry))
