@@ -7,6 +7,11 @@
   translate: -50% -50%;
   display: flex;
   pointer-events: none;
+  transform: translate3d(
+    calc(var(--eye-w) * var(--x, 0) / var(--count)),
+    calc(var(--eye-w) * var(--y, 0) / var(--count)),
+    0
+  );
 }
 
 /* Spacing is a margin, not `gap`, because a negative value has to be legal —

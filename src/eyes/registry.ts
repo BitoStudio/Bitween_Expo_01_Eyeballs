@@ -177,6 +177,18 @@ export function createRegistry(scroller: HTMLElement) {
       // 5dp keeps the written value from rounding above the travel radius
       e.ball.style.setProperty('--bx', bx.toFixed(5))
       e.ball.style.setProperty('--by', by.toFixed(5))
+
+      const pair = e.pair as HTMLElement
+      pair.style.setProperty('--x', '0')
+      pair.style.setProperty('--y', '0')
+      pair.style.setProperty('--count', '0')
+    }
+
+    for(const e of entries) {
+      const pair = e.pair as HTMLElement
+      pair.style.setProperty('--x', (parseFloat(pair.style.getPropertyValue('--x')) + e.bx).toString())
+      pair.style.setProperty('--y', (parseFloat(pair.style.getPropertyValue('--y')) + e.by).toString())
+      pair.style.setProperty('--count', (parseInt(pair.style.getPropertyValue('--count')) + 1).toString())
     }
   }
 
