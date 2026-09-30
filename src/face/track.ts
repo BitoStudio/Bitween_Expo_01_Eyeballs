@@ -28,6 +28,7 @@ export async function startFaceTracking(registry: Registry): Promise<FaceTracker
   let lastSeen = 0
   let tracking = false
   let face: FacePoint | null = null
+  let faceList: FacePoint[] = []
   let screen: [number, number] | null = null
   let ticks = 0
   let fps = 0
@@ -40,7 +41,10 @@ export async function startFaceTracking(registry: Registry): Promise<FaceTracker
     if (now - lastRun < step) return
     lastRun = now
 
-    face = detector.detect(video, now)
+    const detect = detector.detect(video, now)
+    face = detect?.best || null
+    faceList = detect?.all || []
+
     ticks++
     if (now - fpsSince >= 1000) {
       fps = Math.round((ticks * 1000) / (now - fpsSince))
@@ -60,6 +64,7 @@ export async function startFaceTracking(registry: Registry): Promise<FaceTracker
       // reappearing somewhere new: jump the target, the gain ramp hides it
       if (tracking) registry.setTarget(screen[0], screen[1])
       else registry.snapTo(screen[0], screen[1])
+      registry.setTargets(faceList.map(f => faceToScreen(f.nx, f.ny, video.videoWidth, video.videoHeight, innerWidth, innerHeight)))
       tracking = true
       lastSeen = now
     } else if (tracking && now - lastSeen > LOST_AFTER_MS) {

@@ -6,7 +6,7 @@ import { initialWander, stepWander, type WanderState } from './wander'
 const FALLOFF_PX = 400
 /** Per-frame approach to the target. Phase 3 detects faces at ~15Hz; this is
  *  what turns those steps into smooth motion. */
-const SMOOTHING = 0.15
+const SMOOTHING = 0.05
 /** Skip a style write when the pupil barely moved. */
 const EPSILON = 5e-4
 /** Start tracking slightly before an eye scrolls into view. */
@@ -28,6 +28,8 @@ type Entry = {
   col: number
   bx: number
   by: number
+  smooth: { x: number, y: number }
+  center: number
 }
 
 export type Registry = ReturnType<typeof createRegistry>
@@ -54,6 +56,7 @@ export function createRegistry(scroller: HTMLElement) {
    *  pair). Keyed by the .eye-pair element itself. */
   const wander = new Map<Element, WanderState>()
   let target = { x: 0, y: 0 }
+  let targets: number[][] = []
   let smooth = { x: 0, y: 0 }
   let falloff = FALLOFF_PX
   /** Live per-column drift offsets, when the desktop layout is running. */
@@ -95,7 +98,7 @@ export function createRegistry(scroller: HTMLElement) {
         // prettier-ignore
         entries.push({
           eye, ball, pair, slug, col,
-          x: 0, y: 0, cos: Math.cos(rad), sin: Math.sin(rad), bx: 0, by: 0,
+          x: 0, y: 0, cos: Math.cos(rad), sin: Math.sin(rad), bx: 0, by: 0, smooth: { x: 0, y: 0 }, center: 0
         })
       }
       io.observe(pair)
@@ -121,6 +124,9 @@ export function createRegistry(scroller: HTMLElement) {
       const drift = e.col >= 0 ? (columnOffsets[e.col] ?? 0) : 0
       e.x = r.left + r.width / 2 + localX * e.cos - localY * e.sin + ox
       e.y = r.top + r.height / 2 + localX * e.sin + localY * e.cos + oy + drift
+
+      const p = e.eye.parentElement?.parentElement?.getBoundingClientRect()!
+      e.center = p.left + p.width / 2 * e.cos - localY * e.sin + ox
     }
     stale = false
   }
@@ -144,10 +150,25 @@ export function createRegistry(scroller: HTMLElement) {
     const oy = window.scrollY + scroller.scrollTop
     for (const e of entries) {
       if (!visible.has(e.pair)) continue
+
+      const nearest = { x: smooth.x, y: smooth.y }
+      let distance = Infinity
+      for (let t of targets) {
+        const d = Math.abs(e.center - t[0]!)
+        if(d < distance) {
+          distance = d
+          nearest.x = t[0]!
+          nearest.y = t[1]!
+        }
+      }
+
+      e.smooth.x += (nearest.x - e.smooth.x) * SMOOTHING
+      e.smooth.y += (nearest.y - e.smooth.y) * SMOOTHING
+
       const [tx, ty] = travel.get(e.slug)!
       const drift = e.col >= 0 ? (columnOffsets[e.col] ?? 0) : 0
-      const vx = smooth.x - (e.x - ox)
-      const vy = smooth.y - (e.y - oy - drift)
+      const vx = e.smooth.x - (e.x - ox)
+      const vy = e.smooth.y - (e.y - oy - drift)
       // into the eye's own frame: the pupil translates inside a rotated box,
       // so a tilted eye still aims at the target rather than beside it
       const [trackedX, trackedY] = gazeOffset(
@@ -197,6 +218,10 @@ export function createRegistry(scroller: HTMLElement) {
     /** Screen coordinates of whatever the eyes should look at. */
     setTarget(x: number, y: number) {
       target = { x, y }
+      wantGain = 1
+    },
+    setTargets(list: number[][]) {
+      targets = list
       wantGain = 1
     },
     /** Jump instead of easing — for a target that reappeared somewhere new. */

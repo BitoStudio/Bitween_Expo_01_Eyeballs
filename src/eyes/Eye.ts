@@ -33,7 +33,8 @@ export function createEye(slug: string, { flip = false }: EyeOptions = {}): HTML
   el.style.setProperty('--travel-y', String(g.travel[1] / 100))
   el.innerHTML =
     `<img class="eye__sclera" src="${asset(`styles/${slug}/eye.png`)}" alt="" decoding="async">` +
-    `<img class="eye__ball" src="${asset(`styles/${slug}/ball.png`)}" alt="" decoding="async">`
+    `<img class="eye__ball" src="${asset(`styles/${slug}/ball.png`)}" alt="" decoding="async">` +
+    `<video class="blink" src="${asset(`${slug}_blink.webm`)}" autoplay loop muted disablepictureinpicture playsinline></video>`
   return el
 }
 

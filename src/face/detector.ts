@@ -14,7 +14,7 @@ export type FacePoint = {
 }
 
 export type Detector = {
-  detect(video: HTMLVideoElement, timestampMs: number): FacePoint | null
+  detect(video: HTMLVideoElement, timestampMs: number): { best: FacePoint | null, all: FacePoint[] } | null
   close(): void
 }
 
@@ -45,9 +45,15 @@ export async function createDetector(): Promise<Detector> {
 
       // biggest box wins: with a crowd, the eyes follow whoever is closest
       let best: FacePoint | null = null
+      let all: FacePoint[] = []
       for (const { boundingBox: b } of detections) {
         if (!b) continue
         const size = (b.width * b.height) / frameArea
+        all.push({
+          nx: (b.originX + b.width / 2) / video.videoWidth,
+          ny: (b.originY + b.height / 2) / video.videoHeight,
+          size,
+        })
         if (best && size <= best.size) continue
         best = {
           nx: (b.originX + b.width / 2) / video.videoWidth,
@@ -55,7 +61,7 @@ export async function createDetector(): Promise<Detector> {
           size,
         }
       }
-      return best
+      return { best, all }
     },
     close: () => detector.close(),
   }
