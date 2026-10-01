@@ -2,6 +2,7 @@
 //   Assets/<N>_<Name>/{Name}_{eye,ball,bg}.png
 //     -> public/styles/<name>/{eye,ball,bg}.png (ball cropped to its alpha bbox)
 //     -> src/data/styles.generated.ts           (eye geometry, see measureStyle)
+//   Assets/Blink/<colour>.webm (see BLINKS)  -> public/styles/<name>/blink.webm
 //   node_modules/@mediapipe/tasks-vision/wasm/  -> public/wasm/
 //
 // Run: npm run prep         (also runs automatically before dev/build)
@@ -40,6 +41,28 @@ function bbox({ data, width, height }, keep) {
   }
   return x1 < x0 ? null : { x0, y0, x1, y1, w: x1 - x0 + 1, h: y1 - y0 + 1 }
 }
+
+/**
+ * Blink clips are named after their colour, not their style, so the pairing
+ * is written down here. Each clip is drawn on the same canvas as that style's
+ * eye.png, give or take a pixel, and prep checks that — a clip paired with the
+ * wrong style fails here rather than as a lid hanging off the side of an eye.
+ * bitostyle and fashion share one eye art, so they share one clip. Styles not
+ * listed (cool, doraemon for now) simply never blink.
+ */
+const BLINKS = {
+  bitostyle: 'orange pink_1.webm',
+  fashion: 'orange pink_1.webm',
+  girl: 'skin.webm',
+  simpson: 'yellow.webm',
+  sponge: 'yellow_eyelash.webm',
+  perry: 'blue.webm',
+  mike: 'green.webm',
+}
+const BLINK_DIR = join(SRC_DIR, 'Blink')
+/** The clips come out of the editor up to a pixel or two short of the eye
+ *  canvas; the browser stretches them over it, which is invisible at that size. */
+const BLINK_SIZE_TOLERANCE = 2
 
 const isOpaque = (_r, _g, _b, a) => a > ALPHA_MIN
 const isSclera = (r, g, b, a) =>
@@ -117,6 +140,54 @@ function pupilOverflow(eye, ball, geom, scale = 1) {
   return worst
 }
 
+/** EBML variable-length integer: IDs keep their length marker, sizes drop it. */
+function readVint(buf, pos, keepMarker) {
+  const first = buf[pos]
+  let len = 1
+  while (len <= 8 && !(first & (0x80 >> (len - 1)))) len++
+  assert(len <= 8 && pos + len <= buf.length, 'webm: malformed EBML')
+  let value = keepMarker ? first : first & (0xff >> len)
+  let unknown = !keepMarker && value === 0xff >> len
+  for (let i = 1; i < len; i++) {
+    value = value * 256 + buf[pos + i]
+    if (buf[pos + i] !== 0xff) unknown = false
+  }
+  return { value, len, unknown }
+}
+
+/**
+ * Size and alpha flag of a WebM's video track, read straight from the
+ * container so prep needs no ffprobe. Walks Segment > Tracks > TrackEntry >
+ * Video and skips everything else by its declared size.
+ */
+function webmVideoInfo(buf) {
+  // Segment, Tracks, TrackEntry, Video
+  const MASTERS = new Set([0x18538067, 0x1654ae6b, 0xae, 0xe0])
+  const info = { width: 0, height: 0, alpha: false }
+  const uint = (pos, len) => {
+    let v = 0
+    for (let i = 0; i < len; i++) v = v * 256 + buf[pos + i]
+    return v
+  }
+  const walk = (start, end) => {
+    let pos = start
+    while (pos < end) {
+      const id = readVint(buf, pos, true)
+      pos += id.len
+      const size = readVint(buf, pos, false)
+      pos += size.len
+      const stop = size.unknown ? end : Math.min(end, pos + size.value)
+      if (MASTERS.has(id.value)) walk(pos, stop)
+      else if (id.value === 0xb0) info.width = uint(pos, size.value)
+      else if (id.value === 0xba) info.height = uint(pos, size.value)
+      else if (id.value === 0x53c0) info.alpha = uint(pos, size.value) === 1
+      pos = stop
+    }
+  }
+  walk(0, buf.length)
+  return info
+}
+
 async function readPng(path) {
   return PNG.sync.read(await readFile(path))
 }
@@ -157,7 +228,25 @@ async function prepStyle(dir) {
     writeFile(join(outDir, 'bg.png'), bgBytes),
   ])
 
-  return { slug, geom: { ...geom, bgSize: [bg.width, bg.height] }, headroom }
+  const blinkFile = BLINKS[slug]
+  if (blinkFile) {
+    const clip = await readFile(join(BLINK_DIR, blinkFile))
+    const { width, height, alpha } = webmVideoInfo(clip)
+    // without an alpha channel the clip would paint a solid box over the eye
+    assert(alpha, `${slug}: Blink/${blinkFile} has no alpha channel — re-export it as VP9 with alpha`)
+    assert(
+      Math.abs(width - eye.width) <= BLINK_SIZE_TOLERANCE &&
+        Math.abs(height - eye.height) <= BLINK_SIZE_TOLERANCE,
+      `${slug}: Blink/${blinkFile} is ${width}x${height} but the eye is ${eye.width}x${eye.height} — wrong clip in BLINKS?`,
+    )
+    await writeFile(join(outDir, 'blink.webm'), clip)
+  }
+
+  return {
+    slug,
+    geom: { ...geom, bgSize: [bg.width, bg.height], blink: Boolean(blinkFile) },
+    headroom,
+  }
 }
 
 /**
@@ -219,7 +308,8 @@ async function checkTuning(styles) {
 
 async function main() {
   const dirs = (await readdir(SRC_DIR, { withFileTypes: true }))
-    .filter((e) => e.isDirectory())
+    // numbered folders are styles; Blink/ holds clips that BLINKS maps onto them
+    .filter((e) => e.isDirectory() && /^\d+_/.test(e.name))
     .map((e) => e.name)
     .sort()
   assert(dirs.length, `no style folders in ${SRC_DIR}`)
@@ -227,6 +317,8 @@ async function main() {
   await rm(OUT_DIR, { recursive: true, force: true })
   const results = await Promise.all(dirs.map(prepStyle))
   const styles = Object.fromEntries(results.map((r) => [r.slug, r.geom]))
+  for (const slug of Object.keys(BLINKS))
+    assert(styles[slug], `BLINKS names a style that does not exist: "${slug}"`)
 
   for (const { slug, geom: g, headroom } of results) {
     const [tx, ty] = g.travel
@@ -235,7 +327,7 @@ async function main() {
       assert(x > 0 && x <= 100 && y > 0 && y <= 100, `${slug}: geometry out of range`)
     console.log(
       `  ${slug.padEnd(10)} eye ${g.eyeSize.join('x')}  socket ${g.socket.join(',')}%` +
-        `  travel ±${tx},${ty}%${headroom}`,
+        `  travel ±${tx},${ty}%${headroom}${g.blink ? '  blink' : ''}`,
     )
   }
 
@@ -303,6 +395,27 @@ function selftest() {
   )
 
   assert.throws(() => measureStyle(make(4, 4, () => null), ball), /no visible pixels/)
+
+  // Minimal WebM: EBML header, then an unknown-size Segment holding a Tracks
+  // with an audio entry (no Video) and a 94x66 alpha video entry.
+  const el = (id, body) => {
+    assert(body.length < 0x7f)
+    return Buffer.concat([Buffer.from(id), Buffer.from([0x80 | body.length]), body])
+  }
+  const tracks = el([0x16, 0x54, 0xae, 0x6b], Buffer.concat([
+    el([0xae], el([0x83], Buffer.from([2]))),
+    el([0xae], el([0xe0], Buffer.concat([
+      el([0xb0], Buffer.from([94])),
+      el([0xba], Buffer.from([66])),
+      el([0x53, 0xc0], Buffer.from([1])),
+    ]))),
+  ]))
+  const webm = Buffer.concat([
+    el([0x1a, 0x45, 0xdf, 0xa3], Buffer.from([0x42, 0x82, 0x84, 0x77, 0x65, 0x62, 0x6d])),
+    Buffer.from([0x18, 0x53, 0x80, 0x67, 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
+    tracks,
+  ])
+  assert.deepEqual(webmVideoInfo(webm), { width: 94, height: 66, alpha: true })
   console.log('prep-assets selftest: ok')
 }
 

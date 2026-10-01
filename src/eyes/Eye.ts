@@ -33,8 +33,18 @@ export function createEye(slug: string, { flip = false }: EyeOptions = {}): HTML
   el.style.setProperty('--travel-y', String(g.travel[1] / 100))
   el.innerHTML =
     `<img class="eye__sclera" src="${asset(`styles/${slug}/eye.png`)}" alt="" decoding="async">` +
-    `<img class="eye__ball" src="${asset(`styles/${slug}/ball.png`)}" alt="" decoding="async">` +
-    `<video class="blink" src="${asset(`${slug}_blink.webm`)}" autoplay loop muted disablepictureinpicture playsinline></video>`
+    `<img class="eye__ball" src="${asset(`styles/${slug}/ball.png`)}" alt="" decoding="async">`
+  if (g.blink) {
+    // The lid sits on top of the pupil and is drawn on the eye's own canvas,
+    // so it simply covers the eye box. Nothing autoplays: the registry starts
+    // both eyes of a pair together, and only fetches the clip once the pair
+    // is near the screen (preload="none" until then).
+    el.insertAdjacentHTML(
+      'beforeend',
+      `<video class="eye__blink" src="${asset(`styles/${slug}/blink.webm`)}" muted playsinline ` +
+        `preload="none" disablepictureinpicture disableremoteplayback aria-hidden="true"></video>`,
+    )
+  }
   return el
 }
 

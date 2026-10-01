@@ -7,11 +7,10 @@
   translate: -50% -50%;
   display: flex;
   pointer-events: none;
-  transform: translate3d(
-    calc(var(--eye-w) * var(--x, 0) / var(--count)),
-    calc(var(--eye-w) * var(--y, 0) / var(--count)),
-    0
-  );
+  /* The whole pair leans a little towards where its pupils point. --x/--y are
+     the pupil offset the registry writes once per pair; applied after
+     `rotate`, so they move along the pair's own tilted axes, same as the pupils. */
+  transform: translate3d(calc(var(--eye-w) * var(--x, 0)), calc(var(--eye-w) * var(--y, 0)), 0);
 }
 
 /* Spacing is a margin, not `gap`, because a negative value has to be legal —
@@ -61,8 +60,24 @@
   );
 }
 
-.blink {
+/* The lid. Drawn on the same canvas as the sclera (prep-assets checks the
+   size), so it stretches over the whole eye box and covers the pupil. Hidden
+   between blinks: the first and last frames are empty anyway, but a browser
+   that drops the alpha channel would otherwise paint a solid box here — the
+   registry only ever shows it after checking alpha survives. */
+.eye__blink {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  position: relative;
+  object-fit: fill;
+  visibility: hidden;
+}
+
+.eye-pair--blinking .eye__blink {
+  visibility: visible;
+}
+
+.eye--flip .eye__blink {
+  scale: -1 1;
 }

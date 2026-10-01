@@ -18,6 +18,8 @@ export type EyeStyle = {
   /** A character drawn with just the one eye (Mike) — no mirror, no gap. */
   readonly singleEye: boolean
   readonly bgSize: readonly [number, number]
+  /** Has a blink clip at styles/<slug>/blink.webm (see BLINKS in prep-assets). */
+  readonly blink: boolean
 }
 
 /** Nothing in the art says how far apart a pair should sit, so this is just a

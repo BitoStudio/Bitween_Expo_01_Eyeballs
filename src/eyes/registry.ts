@@ -1,4 +1,5 @@
 import { STYLES } from '../data/styles'
+import { BLINK_RETRY_MS, BLINK_STALE_MS, firstBlinkAt, nextBlinkAt, probeAlpha } from './blink'
 import { gazeOffset } from './gaze'
 import { initialWander, stepWander, type WanderState } from './wander'
 
@@ -11,25 +12,46 @@ const SMOOTHING = 0.05
 const EPSILON = 5e-4
 /** Start tracking slightly before an eye scrolls into view. */
 const PRELOAD_MARGIN = '100px'
+/** Grace on top of a clip's own length before a blink that never reported
+ *  `ended` (a stalled decode) is cut off rather than left half-closed. */
+const BLINK_DEADLINE_SLACK_MS = 1000
 
-type Entry = {
+type Eye = {
   eye: HTMLElement
   ball: HTMLElement
-  pair: Element
+}
+
+/**
+ * One .eye-pair — the unit that looks and blinks. Both eyes of a pair share
+ * one target, one gaze direction and one blink, so they always move as a
+ * pair; Mike's group just has a single eye in it.
+ */
+type Pair = {
+  el: HTMLElement
   slug: string
-  /** Socket position in document space, refreshed by rebuild(). */
-  x: number
-  y: number
-  /** cos/sin of the eye's rotation, for converting into its local frame. */
-  cos: number
-  sin: number
-  /** Index of the drifting column this eye rides, or -1 when the layout is
+  eyes: Eye[]
+  /** Blink clips, one per eye; empty for styles without one. */
+  videos: HTMLVideoElement[]
+  /** Index of the drifting column this pair rides, or -1 when the layout is
    *  a plain scrolling list. */
   col: number
+  /** cos/sin of the pair's rotation, for converting into its local frame. */
+  cos: number
+  sin: number
+  /** Midpoint of the eyes' sockets in document space, refreshed by
+   *  rebuild(). The gaze is aimed from here rather than from each eye, so
+   *  both eyes get the same offset and look the same way. */
+  x: number
+  y: number
+  /** Eased copy of whichever target this pair is following. */
+  aim: { x: number; y: number }
   bx: number
   by: number
-  smooth: { x: number, y: number }
-  center: number
+  wander: WanderState
+  blinkAt: number
+  /** performance.now() past which a running blink is force-ended; 0 when
+   *  the pair is not blinking. */
+  blinkUntil: number
 }
 
 export type Registry = ReturnType<typeof createRegistry>
@@ -37,7 +59,11 @@ export type Registry = ReturnType<typeof createRegistry>
 /**
  * Drives every pupil, crossfading between two sources by `gain`: with nothing
  * found, each eye pair wanders its own glance (wander.ts); once a target is
- * set, every pair converges on that one shared point instead.
+ * set, every pair converges on that one shared point instead — or, with
+ * several faces, on the face nearest it across the screen.
+ *
+ * Also plays the blinks: each pair on its own random timer (blink.ts), both
+ * of its eyes at once.
  *
  * Positions are cached in document space and corrected by live scroll offsets
  * each frame, so scrolling never triggers a layout read. `scroller` is the
@@ -45,17 +71,16 @@ export type Registry = ReturnType<typeof createRegistry>
  * its own scroll offsets stay zero, so both are simply added.
  */
 export function createRegistry(scroller: HTMLElement) {
-  const entries: Entry[] = []
+  const pairs: Pair[] = []
+  const byElement = new Map<Element, Pair>()
   const travel = new Map<string, [number, number]>()
   /** Ellipse centre per style, before mirroring. Seeded from STYLES, which
    *  already folds in eye-tuning.ts; the debug panel overwrites it live. */
   const sockets = new Map<string, [number, number]>()
-  const visible = new Set<Element>()
-  /** One independent idle-glance state per eye group (both eyes of a pair
-   *  share it, so they glance together — just not together with anyone else's
-   *  pair). Keyed by the .eye-pair element itself. */
-  const wander = new Map<Element, WanderState>()
+  const visible = new Set<Pair>()
   let target = { x: 0, y: 0 }
+  /** Every detected face in screen space; each pair follows the one nearest
+   *  it horizontally. Empty means "just follow `target`". */
   let targets: number[][] = []
   let smooth = { x: 0, y: 0 }
   let falloff = FALLOFF_PX
@@ -66,12 +91,19 @@ export function createRegistry(scroller: HTMLElement) {
   let wantGain = 0
   let stale = true
   let raf = 0
+  /** Blinks stay off until probeAlpha() confirms this browser keeps the
+   *  clips' transparency; 'off' also covers a failed probe. */
+  let blinks: 'unknown' | 'probing' | 'on' | 'off' = 'unknown'
 
   const io = new IntersectionObserver(
     (records) => {
       for (const r of records) {
-        if (r.isIntersecting) visible.add(r.target)
-        else visible.delete(r.target)
+        const p = byElement.get(r.target)
+        if (!p) continue
+        if (r.isIntersecting) {
+          visible.add(p)
+          if (blinks !== 'off') preload(p)
+        } else visible.delete(p)
       }
     },
     { rootMargin: PRELOAD_MARGIN },
@@ -83,25 +115,57 @@ export function createRegistry(scroller: HTMLElement) {
   })
   ro.observe(scroller)
 
+  /** Clips are fetched only once their pair comes near the screen. */
+  function preload(p: Pair) {
+    for (const v of p.videos) {
+      if (v.preload !== 'none') continue
+      v.preload = 'auto'
+      v.load()
+    }
+  }
+
+  function probeBlinks(src: string) {
+    blinks = 'probing'
+    void probeAlpha(src).then((ok) => {
+      blinks = ok ? 'on' : 'off'
+      if (ok) for (const p of visible) preload(p)
+      else console.warn('blink: this browser drops WebM alpha, eyes will not blink')
+    })
+  }
+
   function addAll(root: ParentNode) {
-    for (const pair of root.querySelectorAll('.eye-pair')) {
-      if (!wander.has(pair)) wander.set(pair, initialWander(performance.now()))
-      for (const eye of pair.querySelectorAll<HTMLElement>('.eye')) {
-        const slug = eye.dataset.style
-        const style = slug ? STYLES[slug] : undefined
+    const now = performance.now()
+    for (const el of root.querySelectorAll<HTMLElement>('.eye-pair')) {
+      if (byElement.has(el)) continue
+      const eyes: Eye[] = []
+      let slug = ''
+      for (const eye of el.querySelectorAll<HTMLElement>('.eye')) {
         const ball = eye.querySelector<HTMLElement>('.eye__ball')
-        if (!slug || !style || !ball) throw new Error('registry: malformed eye element')
-        if (!travel.has(slug)) travel.set(slug, [style.travel[0] / 100, style.travel[1] / 100])
-        if (!sockets.has(slug)) sockets.set(slug, [style.socket[0], style.socket[1]])
-        const rad = (Number(eye.dataset.tilt ?? 0) * Math.PI) / 180
-        const col = Number(eye.closest<HTMLElement>('.feed__col')?.dataset.col ?? -1)
-        // prettier-ignore
-        entries.push({
-          eye, ball, pair, slug, col,
-          x: 0, y: 0, cos: Math.cos(rad), sin: Math.sin(rad), bx: 0, by: 0, smooth: { x: 0, y: 0 }, center: 0
-        })
+        slug = eye.dataset.style ?? ''
+        if (!STYLES[slug] || !ball) throw new Error('registry: malformed eye element')
+        eyes.push({ eye, ball })
       }
-      io.observe(pair)
+      const style = STYLES[slug]
+      if (!style) throw new Error('registry: empty eye pair')
+      if (!travel.has(slug)) travel.set(slug, [style.travel[0] / 100, style.travel[1] / 100])
+      if (!sockets.has(slug)) sockets.set(slug, [style.socket[0], style.socket[1]])
+
+      const videos = [...el.querySelectorAll<HTMLVideoElement>('.eye__blink')]
+      for (const v of videos) v.muted = true
+      if (videos[0] && blinks === 'unknown') probeBlinks(videos[0].src)
+
+      const rad = (Number(eyes[0]!.eye.dataset.tilt ?? 0) * Math.PI) / 180
+      const col = Number(el.closest<HTMLElement>('.feed__col')?.dataset.col ?? -1)
+      // prettier-ignore
+      const pair: Pair = {
+        el, slug, eyes, videos, col,
+        cos: Math.cos(rad), sin: Math.sin(rad),
+        x: 0, y: 0, aim: { x: 0, y: 0 }, bx: 0, by: 0,
+        wander: initialWander(now), blinkAt: firstBlinkAt(now), blinkUntil: 0,
+      }
+      pairs.push(pair)
+      byElement.set(el, pair)
+      io.observe(el)
     }
     stale = true
   }
@@ -109,26 +173,74 @@ export function createRegistry(scroller: HTMLElement) {
   function rebuild() {
     const ox = window.scrollX + scroller.scrollLeft
     const oy = window.scrollY + scroller.scrollTop
-    for (const e of entries) {
-      const [tunedX, tunedY] = sockets.get(e.slug)!
-      const flip = e.eye.classList.contains('eye--flip')
-      const socketX = flip ? 100 - tunedX : tunedX
-      const r = e.eye.getBoundingClientRect()
-      // A rotated element's rect is its bounding box, so only the centre is
-      // trustworthy; offsetWidth/Height give the unrotated layout size.
-      const localX = (socketX / 100 - 0.5) * e.eye.offsetWidth
-      const localY = (tunedY / 100 - 0.5) * e.eye.offsetHeight
-      // gaze originates at the socket, which is off-centre in several styles.
-      // The rect already includes the column's current drift, so add it back:
-      // the cache holds an untransformed position that frame() re-offsets.
-      const drift = e.col >= 0 ? (columnOffsets[e.col] ?? 0) : 0
-      e.x = r.left + r.width / 2 + localX * e.cos - localY * e.sin + ox
-      e.y = r.top + r.height / 2 + localX * e.sin + localY * e.cos + oy + drift
-
-      const p = e.eye.parentElement?.parentElement?.getBoundingClientRect()!
-      e.center = p.left + p.width / 2 * e.cos - localY * e.sin + ox
+    for (const p of pairs) {
+      const [tunedX, tunedY] = sockets.get(p.slug)!
+      let sx = 0
+      let sy = 0
+      for (const { eye } of p.eyes) {
+        const flip = eye.classList.contains('eye--flip')
+        const socketX = flip ? 100 - tunedX : tunedX
+        const r = eye.getBoundingClientRect()
+        // A rotated element's rect is its bounding box, so only the centre is
+        // trustworthy; offsetWidth/Height give the unrotated layout size.
+        const localX = (socketX / 100 - 0.5) * eye.offsetWidth
+        const localY = (tunedY / 100 - 0.5) * eye.offsetHeight
+        sx += r.left + r.width / 2 + localX * p.cos - localY * p.sin
+        sy += r.top + r.height / 2 + localX * p.sin + localY * p.cos
+      }
+      // The rect includes the pair's own lean towards its gaze (--x/--y in
+      // eye.css, in the pair's rotated frame) — take it back out, or the
+      // cached socket would shift every time the pair looked somewhere.
+      const w = p.eyes[0]!.eye.offsetWidth
+      const leanX = w * (p.bx * p.cos - p.by * p.sin)
+      const leanY = w * (p.bx * p.sin + p.by * p.cos)
+      // Likewise the column's current drift: the cache holds an
+      // untransformed position that frame() re-offsets.
+      const drift = p.col >= 0 ? (columnOffsets[p.col] ?? 0) : 0
+      p.x = sx / p.eyes.length - leanX + ox
+      p.y = sy / p.eyes.length - leanY + oy + drift
     }
     stale = false
+  }
+
+  function startBlink(p: Pair, now: number) {
+    // Both clips must be able to run right away, or one eye would lag the
+    // other; try again shortly rather than blink out of step.
+    if (p.videos.some((v) => v.readyState < HTMLMediaElement.HAVE_FUTURE_DATA)) {
+      preload(p)
+      p.blinkAt = now + BLINK_RETRY_MS
+      return
+    }
+    // a clip without a duration in its header reports Infinity
+    const seconds = p.videos[0]!.duration
+    const length = (Number.isFinite(seconds) ? seconds : 3) * 1000
+    p.blinkUntil = now + length + BLINK_DEADLINE_SLACK_MS
+    p.el.classList.add('eye-pair--blinking')
+    for (const v of p.videos) {
+      v.currentTime = 0
+      v.play().catch(() => (p.blinkUntil = now))
+    }
+  }
+
+  function stepBlink(p: Pair, now: number) {
+    if (p.blinkUntil) {
+      const finished = p.videos.every((v) => v.ended)
+      if (!finished && now < p.blinkUntil) return
+      if (!finished) {
+        // stalled: rewind to the empty first frame so no lid is left hanging
+        for (const v of p.videos) {
+          v.pause()
+          v.currentTime = 0
+        }
+      }
+      p.el.classList.remove('eye-pair--blinking')
+      p.blinkUntil = 0
+      p.blinkAt = nextBlinkAt(now)
+      return
+    }
+    if (now < p.blinkAt) return
+    if (now - p.blinkAt > BLINK_STALE_MS) p.blinkAt = nextBlinkAt(now)
+    else startBlink(p, now)
   }
 
   function frame() {
@@ -139,41 +251,39 @@ export function createRegistry(scroller: HTMLElement) {
     gain += (wantGain - gain) * SMOOTHING
     if (stale) rebuild()
 
-    // one idle-glance step per visible pair — `visible` is a Set, so a pair
-    // with two eyes still only advances once
-    for (const pair of visible) {
-      const w = wander.get(pair)
-      if (w) wander.set(pair, stepWander(w, now))
-    }
-
     const ox = window.scrollX + scroller.scrollLeft
     const oy = window.scrollY + scroller.scrollTop
-    for (const e of entries) {
-      if (!visible.has(e.pair)) continue
+    for (const p of visible) {
+      p.wander = stepWander(p.wander, now)
+      if (blinks === 'on' && p.videos.length) stepBlink(p, now)
 
-      const nearest = { x: smooth.x, y: smooth.y }
-      let distance = Infinity
-      for (let t of targets) {
-        const d = Math.abs(e.center - t[0]!)
-        if(d < distance) {
-          distance = d
-          nearest.x = t[0]!
-          nearest.y = t[1]!
-        }
+      const drift = p.col >= 0 ? (columnOffsets[p.col] ?? 0) : 0
+      const px = p.x - ox
+      const py = p.y - oy - drift
+
+      // with several faces in view, each pair follows the one nearest it
+      // across the screen; otherwise the single shared target
+      let goalX = smooth.x
+      let goalY = smooth.y
+      let nearest = Infinity
+      for (const t of targets) {
+        const d = Math.abs(px - t[0]!)
+        if (d >= nearest) continue
+        nearest = d
+        goalX = t[0]!
+        goalY = t[1]!
       }
+      p.aim.x += (goalX - p.aim.x) * SMOOTHING
+      p.aim.y += (goalY - p.aim.y) * SMOOTHING
 
-      e.smooth.x += (nearest.x - e.smooth.x) * SMOOTHING
-      e.smooth.y += (nearest.y - e.smooth.y) * SMOOTHING
-
-      const [tx, ty] = travel.get(e.slug)!
-      const drift = e.col >= 0 ? (columnOffsets[e.col] ?? 0) : 0
-      const vx = e.smooth.x - (e.x - ox)
-      const vy = e.smooth.y - (e.y - oy - drift)
-      // into the eye's own frame: the pupil translates inside a rotated box,
-      // so a tilted eye still aims at the target rather than beside it
+      const [tx, ty] = travel.get(p.slug)!
+      const vx = p.aim.x - px
+      const vy = p.aim.y - py
+      // into the pair's own frame: the pupil translates inside a rotated box,
+      // so a tilted pair still aims at the target rather than beside it
       const [trackedX, trackedY] = gazeOffset(
-        vx * e.cos + vy * e.sin,
-        vy * e.cos - vx * e.sin,
+        vx * p.cos + vy * p.sin,
+        vy * p.cos - vx * p.sin,
         tx,
         ty,
         falloff,
@@ -183,33 +293,27 @@ export function createRegistry(scroller: HTMLElement) {
       // rotation compensation above — a uniformly random direction stays
       // uniformly random after a fixed rotation, so there is nothing to gain
       // from compensating it.
-      const w = wander.get(e.pair)!
-      const wanderX = w.x * tx
-      const wanderY = w.y * ty
+      const wanderX = p.wander.x * tx
+      const wanderY = p.wander.y * ty
       // gain is the crossfade: 0 = every pair glances on its own, 1 = every
       // pair looks at the same found target. Both operands sit inside the
       // travel ellipse already, and the ellipse is convex, so the blend
       // can't ever push the pupil past either one's own bound.
       const bx = wanderX * (1 - gain) + trackedX * gain
       const by = wanderY * (1 - gain) + trackedY * gain
-      if (Math.abs(bx - e.bx) < EPSILON && Math.abs(by - e.by) < EPSILON) continue
-      e.bx = bx
-      e.by = by
+      if (Math.abs(bx - p.bx) < EPSILON && Math.abs(by - p.by) < EPSILON) continue
+      p.bx = bx
+      p.by = by
       // 5dp keeps the written value from rounding above the travel radius
-      e.ball.style.setProperty('--bx', bx.toFixed(5))
-      e.ball.style.setProperty('--by', by.toFixed(5))
-
-      const pair = e.pair as HTMLElement
-      pair.style.setProperty('--x', '0')
-      pair.style.setProperty('--y', '0')
-      pair.style.setProperty('--count', '0')
-    }
-
-    for(const e of entries) {
-      const pair = e.pair as HTMLElement
-      pair.style.setProperty('--x', (parseFloat(pair.style.getPropertyValue('--x')) + e.bx).toString())
-      pair.style.setProperty('--y', (parseFloat(pair.style.getPropertyValue('--y')) + e.by).toString())
-      pair.style.setProperty('--count', (parseInt(pair.style.getPropertyValue('--count')) + 1).toString())
+      const sbx = bx.toFixed(5)
+      const sby = by.toFixed(5)
+      for (const { ball } of p.eyes) {
+        ball.style.setProperty('--bx', sbx)
+        ball.style.setProperty('--by', sby)
+      }
+      // the pair leans after its pupils (see eye.css)
+      p.el.style.setProperty('--x', sbx)
+      p.el.style.setProperty('--y', sby)
     }
   }
 
@@ -220,6 +324,8 @@ export function createRegistry(scroller: HTMLElement) {
       target = { x, y }
       wantGain = 1
     },
+    /** Every face in view, in screen coordinates; each pair follows the one
+     *  nearest it horizontally. */
     setTargets(list: number[][]) {
       targets = list
       wantGain = 1
