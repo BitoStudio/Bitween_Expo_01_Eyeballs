@@ -18,8 +18,27 @@ export type EyeStyle = {
   /** A character drawn with just the one eye (Mike) — no mirror, no gap. */
   readonly singleEye: boolean
   readonly bgSize: readonly [number, number]
-  /** Has a blink clip at styles/<slug>/blink.webm (see BLINKS in prep-assets). */
-  readonly blink: boolean
+  /** Blink sprite sheet at styles/<slug>/blink.png, or null for a style that
+   *  never blinks. See scripts/blinks.mjs. */
+  readonly blink: BlinkSheet | null
+}
+
+export type BlinkSheet = {
+  /** 'lid' lays the sheet over the whole eye; 'pupil' draws it in place of
+   *  ball.png, so the pupil itself blinks and the first frame is its rest. */
+  readonly mode: 'lid' | 'pupil'
+  /**
+   * Percentages, worked out by prep-assets' blinkGeometry.
+   * lid:   [left, top, width, height] in the eye box.
+   * pupil: [anchorX, anchorY] in the sheet cell — the point that sits on the
+   *        socket — then [width, height] in the eye box.
+   */
+  readonly box: readonly [number, number, number, number]
+  /** Columns and rows of frames in the sheet. */
+  readonly grid: readonly [number, number]
+  readonly fps: number
+  /** Sheet cell to show for each frame of the clip, in order. */
+  readonly timeline: readonly number[]
 }
 
 /** Nothing in the art says how far apart a pair should sit, so this is just a
