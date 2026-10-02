@@ -2,7 +2,8 @@
 //   Assets/<N>_<Name>/{Name}_{eye,ball,bg}.png
 //     -> public/styles/<name>/{eye,ball,bg}.png (ball cropped to its alpha bbox)
 //     -> src/data/styles.generated.ts           (eye geometry, see measureStyle)
-//   Assets/Blink/<colour>.webm (see BLINKS)  -> public/styles/<name>/blink.webm
+//   Assets/Blink/sheets/<clip>.{png,json}    -> public/styles/<name>/blink.png
+//     (sheets come from `npm run blinks`; scripts/blinks.mjs says which is whose)
 //   node_modules/@mediapipe/tasks-vision/wasm/  -> public/wasm/
 //
 // Run: npm run prep         (also runs automatically before dev/build)
@@ -11,7 +12,9 @@ import { readdir, readFile, writeFile, mkdir, rm, cp } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { PNG } from 'pngjs'
+import { BLINKS } from './blinks.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SRC_DIR = join(ROOT, 'Assets')
@@ -42,26 +45,8 @@ function bbox({ data, width, height }, keep) {
   return x1 < x0 ? null : { x0, y0, x1, y1, w: x1 - x0 + 1, h: y1 - y0 + 1 }
 }
 
-/**
- * Blink clips are named after their colour, not their style, so the pairing
- * is written down here. Each clip is drawn on the same canvas as that style's
- * eye.png, give or take a pixel, and prep checks that — a clip paired with the
- * wrong style fails here rather than as a lid hanging off the side of an eye.
- * bitostyle and fashion share one eye art, so they share one clip. Styles not
- * listed (cool, doraemon for now) simply never blink.
- */
-const BLINKS = {
-  bitostyle: 'orange pink_1.webm',
-  fashion: 'orange pink_1.webm',
-  girl: 'skin.webm',
-  simpson: 'yellow.webm',
-  sponge: 'yellow_eyelash.webm',
-  perry: 'blue.webm',
-  mike: 'green.webm',
-}
-const BLINK_DIR = join(SRC_DIR, 'Blink')
-/** The clips come out of the editor up to a pixel or two short of the eye
- *  canvas; the browser stretches them over it, which is invisible at that size. */
+const SHEET_DIR = join(SRC_DIR, 'Blink', 'sheets')
+/** Clips come out of the editor a pixel or two off the art they belong to. */
 const BLINK_SIZE_TOLERANCE = 2
 
 const isOpaque = (_r, _g, _b, a) => a > ALPHA_MIN
@@ -140,52 +125,60 @@ function pupilOverflow(eye, ball, geom, scale = 1) {
   return worst
 }
 
-/** EBML variable-length integer: IDs keep their length marker, sizes drop it. */
-function readVint(buf, pos, keepMarker) {
-  const first = buf[pos]
-  let len = 1
-  while (len <= 8 && !(first & (0x80 >> (len - 1)))) len++
-  assert(len <= 8 && pos + len <= buf.length, 'webm: malformed EBML')
-  let value = keepMarker ? first : first & (0xff >> len)
-  let unknown = !keepMarker && value === 0xff >> len
-  for (let i = 1; i < len; i++) {
-    value = value * 256 + buf[pos + i]
-    if (buf[pos + i] !== 0xff) unknown = false
-  }
-  return { value, len, unknown }
-}
+const round = (v) => Math.round(v * 1000) / 1000
 
 /**
- * Size and alpha flag of a WebM's video track, read straight from the
- * container so prep needs no ffprobe. Walks Segment > Tracks > TrackEntry >
- * Video and skips everything else by its declared size.
+ * Where a blink sheet's cells sit on the eye, as percentages for eye.css.
+ * Each cell is the clip frame plus a transparent gutter on every side.
+ *
+ * lid    box = [left, top, width, height] of the cell in the eye box. The
+ *        frame is stretched over the whole eye (the clips run a pixel or two
+ *        short of it), the gutter spills just outside.
+ * pupil  box = [anchorX, anchorY, width, height]: the cell at the art's own
+ *        pixel scale (width/height in % of the eye box), and the point of it
+ *        — the centre of the resting pupil, in % of the cell — that sits on
+ *        the socket, exactly where ball.png's centre would.
  */
-function webmVideoInfo(buf) {
-  // Segment, Tracks, TrackEntry, Video
-  const MASTERS = new Set([0x18538067, 0x1654ae6b, 0xae, 0xe0])
-  const info = { width: 0, height: 0, alpha: false }
-  const uint = (pos, len) => {
-    let v = 0
-    for (let i = 0; i < len; i++) v = v * 256 + buf[pos + i]
-    return v
+function blinkGeometry(meta, mode, [eyeW, eyeH]) {
+  const [fw, fh] = meta.frame
+  const g = meta.gutter
+  const [cw, ch] = [fw + 2 * g, fh + 2 * g]
+  let box
+  if (mode === 'lid') {
+    box = [(-g / fw) * 100, (-g / fh) * 100, (cw / fw) * 100, (ch / fh) * 100]
+  } else {
+    const [rx, ry, rw, rh] = meta.rest
+    box = [((g + rx + rw / 2) / cw) * 100, ((g + ry + rh / 2) / ch) * 100, (cw / eyeW) * 100, (ch / eyeH) * 100]
   }
-  const walk = (start, end) => {
-    let pos = start
-    while (pos < end) {
-      const id = readVint(buf, pos, true)
-      pos += id.len
-      const size = readVint(buf, pos, false)
-      pos += size.len
-      const stop = size.unknown ? end : Math.min(end, pos + size.value)
-      if (MASTERS.has(id.value)) walk(pos, stop)
-      else if (id.value === 0xb0) info.width = uint(pos, size.value)
-      else if (id.value === 0xba) info.height = uint(pos, size.value)
-      else if (id.value === 0x53c0) info.alpha = uint(pos, size.value) === 1
-      pos = stop
-    }
+  return { mode, box: box.map(round), grid: meta.grid, fps: meta.fps, timeline: meta.timeline }
+}
+
+async function prepBlink(slug, eye, ballBox) {
+  const entry = BLINKS[slug]
+  if (!entry) return null
+  const { clip, mode } = entry
+  const base = clip.replace(/\.webm$/, '')
+  const stale = `run \`npm run blinks\` (needs ffmpeg) to rebuild the sheets`
+  let meta
+  try {
+    meta = JSON.parse(await readFile(join(SHEET_DIR, `${base}.json`), 'utf8'))
+  } catch {
+    assert.fail(`${slug}: no sprite sheet for Blink/${clip} — ${stale}`)
   }
-  walk(0, buf.length)
-  return info
+  const source = createHash('sha256').update(await readFile(join(SRC_DIR, 'Blink', clip))).digest('hex')
+  assert.equal(meta.source, source, `${slug}: Blink/${clip} changed since its sheet was made — ${stale}`)
+
+  // a clip paired with the wrong style fails here, not as a lid hanging off an eye
+  const near = ([a, b], [c, d]) => Math.abs(a - c) <= BLINK_SIZE_TOLERANCE && Math.abs(b - d) <= BLINK_SIZE_TOLERANCE
+  if (mode === 'lid') {
+    assert(near(meta.frame, [eye.width, eye.height]),
+      `${slug}: Blink/${clip} is ${meta.frame.join('x')} but the eye is ${eye.width}x${eye.height} — wrong clip in blinks.mjs?`)
+  } else {
+    const rest = meta.rest.slice(2)
+    assert(near(rest, [ballBox.w, ballBox.h]),
+      `${slug}: Blink/${clip}'s resting pupil is ${rest.join('x')} but ball.png is ${ballBox.w}x${ballBox.h} — wrong clip in blinks.mjs?`)
+  }
+  return { sheet: join(SHEET_DIR, `${base}.png`), geom: blinkGeometry(meta, mode, [eye.width, eye.height]) }
 }
 
 async function readPng(path) {
@@ -228,23 +221,12 @@ async function prepStyle(dir) {
     writeFile(join(outDir, 'bg.png'), bgBytes),
   ])
 
-  const blinkFile = BLINKS[slug]
-  if (blinkFile) {
-    const clip = await readFile(join(BLINK_DIR, blinkFile))
-    const { width, height, alpha } = webmVideoInfo(clip)
-    // without an alpha channel the clip would paint a solid box over the eye
-    assert(alpha, `${slug}: Blink/${blinkFile} has no alpha channel — re-export it as VP9 with alpha`)
-    assert(
-      Math.abs(width - eye.width) <= BLINK_SIZE_TOLERANCE &&
-        Math.abs(height - eye.height) <= BLINK_SIZE_TOLERANCE,
-      `${slug}: Blink/${blinkFile} is ${width}x${height} but the eye is ${eye.width}x${eye.height} — wrong clip in BLINKS?`,
-    )
-    await writeFile(join(outDir, 'blink.webm'), clip)
-  }
+  const blink = await prepBlink(slug, eye, ballBox)
+  if (blink) await writeFile(join(outDir, 'blink.png'), await readFile(blink.sheet))
 
   return {
     slug,
-    geom: { ...geom, bgSize: [bg.width, bg.height], blink: Boolean(blinkFile) },
+    geom: { ...geom, bgSize: [bg.width, bg.height], blink: blink?.geom ?? null },
     headroom,
   }
 }
@@ -327,7 +309,7 @@ async function main() {
       assert(x > 0 && x <= 100 && y > 0 && y <= 100, `${slug}: geometry out of range`)
     console.log(
       `  ${slug.padEnd(10)} eye ${g.eyeSize.join('x')}  socket ${g.socket.join(',')}%` +
-        `  travel ±${tx},${ty}%${headroom}${g.blink ? '  blink' : ''}`,
+        `  travel ±${tx},${ty}%${headroom}${g.blink ? `  blink:${g.blink.mode}` : ''}`,
     )
   }
 
@@ -396,26 +378,12 @@ function selftest() {
 
   assert.throws(() => measureStyle(make(4, 4, () => null), ball), /no visible pixels/)
 
-  // Minimal WebM: EBML header, then an unknown-size Segment holding a Tracks
-  // with an audio entry (no Video) and a 94x66 alpha video entry.
-  const el = (id, body) => {
-    assert(body.length < 0x7f)
-    return Buffer.concat([Buffer.from(id), Buffer.from([0x80 | body.length]), body])
-  }
-  const tracks = el([0x16, 0x54, 0xae, 0x6b], Buffer.concat([
-    el([0xae], el([0x83], Buffer.from([2]))),
-    el([0xae], el([0xe0], Buffer.concat([
-      el([0xb0], Buffer.from([94])),
-      el([0xba], Buffer.from([66])),
-      el([0x53, 0xc0], Buffer.from([1])),
-    ]))),
-  ]))
-  const webm = Buffer.concat([
-    el([0x1a, 0x45, 0xdf, 0xa3], Buffer.from([0x42, 0x82, 0x84, 0x77, 0x65, 0x62, 0x6d])),
-    Buffer.from([0x18, 0x53, 0x80, 0x67, 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
-    tracks,
-  ])
-  assert.deepEqual(webmVideoInfo(webm), { width: 94, height: 66, alpha: true })
+  // blink geometry: a 10x10 frame with a 2px gutter is a 14x14 cell
+  const meta = { frame: [10, 10], gutter: 2, grid: [1, 1], fps: 30, rest: [2, 4, 6, 4], timeline: [0] }
+  // lid: the frame stretches over the eye box, so the cell overhangs by 20%
+  assert.deepEqual(blinkGeometry(meta, 'lid', [100, 50]).box, [-20, -20, 140, 140])
+  // pupil: native pixel scale, anchored on the resting pupil's centre (2+2+3, 2+4+2)
+  assert.deepEqual(blinkGeometry(meta, 'pupil', [100, 50]).box, [50, round(800 / 14), 14, 28])
   console.log('prep-assets selftest: ok')
 }
 

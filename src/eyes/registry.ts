@@ -1,5 +1,5 @@
 import { STYLES } from '../data/styles'
-import { BLINK_RETRY_MS, BLINK_STALE_MS, firstBlinkAt, nextBlinkAt, probeAlpha } from './blink'
+import { BLINK_STALE_MS, blinkFrame, firstBlinkAt, nextBlinkAt, sheetPosition } from './blink'
 import { gazeOffset } from './gaze'
 import { initialWander, stepWander, type WanderState } from './wander'
 
@@ -12,9 +12,6 @@ const SMOOTHING = 0.05
 const EPSILON = 5e-4
 /** Start tracking slightly before an eye scrolls into view. */
 const PRELOAD_MARGIN = '100px'
-/** Grace on top of a clip's own length before a blink that never reported
- *  `ended` (a stalled decode) is cut off rather than left half-closed. */
-const BLINK_DEADLINE_SLACK_MS = 1000
 
 type Eye = {
   eye: HTMLElement
@@ -30,8 +27,12 @@ type Pair = {
   el: HTMLElement
   slug: string
   eyes: Eye[]
-  /** Blink clips, one per eye; empty for styles without one. */
-  videos: HTMLVideoElement[]
+  /** Blink sprite sheets, one per eye (a lid over it, or the pupil itself);
+   *  empty for styles that never blink. */
+  sheets: HTMLElement[]
+  /** background-position for each frame of the blink, precomputed per style. */
+  frames: readonly string[]
+  fps: number
   /** Index of the drifting column this pair rides, or -1 when the layout is
    *  a plain scrolling list. */
   col: number
@@ -49,9 +50,10 @@ type Pair = {
   by: number
   wander: WanderState
   blinkAt: number
-  /** performance.now() past which a running blink is force-ended; 0 when
-   *  the pair is not blinking. */
-  blinkUntil: number
+  /** performance.now() the running blink started at; 0 when not blinking. */
+  blinkStart: number
+  /** Frame currently shown, so an unchanged frame is not rewritten. */
+  shown: string
 }
 
 export type Registry = ReturnType<typeof createRegistry>
@@ -63,7 +65,7 @@ export type Registry = ReturnType<typeof createRegistry>
  * several faces, on the face nearest it across the screen.
  *
  * Also plays the blinks: each pair on its own random timer (blink.ts), both
- * of its eyes at once.
+ * of its eyes stepped through their sprite sheet from the same clock.
  *
  * Positions are cached in document space and corrected by live scroll offsets
  * each frame, so scrolling never triggers a layout read. `scroller` is the
@@ -91,19 +93,16 @@ export function createRegistry(scroller: HTMLElement) {
   let wantGain = 0
   let stale = true
   let raf = 0
-  /** Blinks stay off until probeAlpha() confirms this browser keeps the
-   *  clips' transparency; 'off' also covers a failed probe. */
-  let blinks: 'unknown' | 'probing' | 'on' | 'off' = 'unknown'
+  /** Frame positions per style, built once from its sheet's timeline. */
+  const frameCache = new Map<string, string[]>()
 
   const io = new IntersectionObserver(
     (records) => {
       for (const r of records) {
         const p = byElement.get(r.target)
         if (!p) continue
-        if (r.isIntersecting) {
-          visible.add(p)
-          if (blinks !== 'off') preload(p)
-        } else visible.delete(p)
+        if (r.isIntersecting) visible.add(p)
+        else visible.delete(p)
       }
     },
     { rootMargin: PRELOAD_MARGIN },
@@ -114,24 +113,6 @@ export function createRegistry(scroller: HTMLElement) {
     stale = true
   })
   ro.observe(scroller)
-
-  /** Clips are fetched only once their pair comes near the screen. */
-  function preload(p: Pair) {
-    for (const v of p.videos) {
-      if (v.preload !== 'none') continue
-      v.preload = 'auto'
-      v.load()
-    }
-  }
-
-  function probeBlinks(src: string) {
-    blinks = 'probing'
-    void probeAlpha(src).then((ok) => {
-      blinks = ok ? 'on' : 'off'
-      if (ok) for (const p of visible) preload(p)
-      else console.warn('blink: this browser drops WebM alpha, eyes will not blink')
-    })
-  }
 
   function addAll(root: ParentNode) {
     const now = performance.now()
@@ -150,18 +131,22 @@ export function createRegistry(scroller: HTMLElement) {
       if (!travel.has(slug)) travel.set(slug, [style.travel[0] / 100, style.travel[1] / 100])
       if (!sockets.has(slug)) sockets.set(slug, [style.socket[0], style.socket[1]])
 
-      const videos = [...el.querySelectorAll<HTMLVideoElement>('.eye__blink')]
-      for (const v of videos) v.muted = true
-      if (videos[0] && blinks === 'unknown') probeBlinks(videos[0].src)
+      const sheets = [...el.querySelectorAll<HTMLElement>('.eye__sheet')]
+      const sheet = style.blink
+      let frames = frameCache.get(slug) ?? []
+      if (sheet && !frameCache.has(slug)) {
+        frames = sheet.timeline.map((cell) => sheetPosition(cell, sheet.grid))
+        frameCache.set(slug, frames)
+      }
 
       const rad = (Number(eyes[0]!.eye.dataset.tilt ?? 0) * Math.PI) / 180
       const col = Number(el.closest<HTMLElement>('.feed__col')?.dataset.col ?? -1)
       // prettier-ignore
       const pair: Pair = {
-        el, slug, eyes, videos, col,
+        el, slug, eyes, sheets, frames, fps: sheet?.fps ?? 0, col,
         cos: Math.cos(rad), sin: Math.sin(rad),
         x: 0, y: 0, aim: { x: 0, y: 0 }, bx: 0, by: 0,
-        wander: initialWander(now), blinkAt: firstBlinkAt(now), blinkUntil: 0,
+        wander: initialWander(now), blinkAt: firstBlinkAt(now), blinkStart: 0, shown: frames[0] ?? '',
       }
       pairs.push(pair)
       byElement.set(el, pair)
@@ -203,44 +188,26 @@ export function createRegistry(scroller: HTMLElement) {
     stale = false
   }
 
-  function startBlink(p: Pair, now: number) {
-    // Both clips must be able to run right away, or one eye would lag the
-    // other; try again shortly rather than blink out of step.
-    if (p.videos.some((v) => v.readyState < HTMLMediaElement.HAVE_FUTURE_DATA)) {
-      preload(p)
-      p.blinkAt = now + BLINK_RETRY_MS
-      return
-    }
-    // a clip without a duration in its header reports Infinity
-    const seconds = p.videos[0]!.duration
-    const length = (Number.isFinite(seconds) ? seconds : 3) * 1000
-    p.blinkUntil = now + length + BLINK_DEADLINE_SLACK_MS
-    p.el.classList.add('eye-pair--blinking')
-    for (const v of p.videos) {
-      v.currentTime = 0
-      v.play().catch(() => (p.blinkUntil = now))
-    }
+  function showFrame(p: Pair, position: string) {
+    if (position === p.shown) return
+    p.shown = position
+    for (const el of p.sheets) el.style.backgroundPosition = position
   }
 
   function stepBlink(p: Pair, now: number) {
-    if (p.blinkUntil) {
-      const finished = p.videos.every((v) => v.ended)
-      if (!finished && now < p.blinkUntil) return
-      if (!finished) {
-        // stalled: rewind to the empty first frame so no lid is left hanging
-        for (const v of p.videos) {
-          v.pause()
-          v.currentTime = 0
-        }
-      }
-      p.el.classList.remove('eye-pair--blinking')
-      p.blinkUntil = 0
+    if (p.blinkStart) {
+      // A pair that scrolled away mid-blink lands past the end on its return,
+      // and simply settles back on the first frame.
+      const i = blinkFrame(now - p.blinkStart, p.fps, p.frames.length)
+      if (i >= 0) return showFrame(p, p.frames[i]!)
+      showFrame(p, p.frames[0]!)
+      p.blinkStart = 0
       p.blinkAt = nextBlinkAt(now)
       return
     }
     if (now < p.blinkAt) return
     if (now - p.blinkAt > BLINK_STALE_MS) p.blinkAt = nextBlinkAt(now)
-    else startBlink(p, now)
+    else p.blinkStart = now
   }
 
   function frame() {
@@ -255,7 +222,7 @@ export function createRegistry(scroller: HTMLElement) {
     const oy = window.scrollY + scroller.scrollTop
     for (const p of visible) {
       p.wander = stepWander(p.wander, now)
-      if (blinks === 'on' && p.videos.length) stepBlink(p, now)
+      if (p.sheets.length) stepBlink(p, now)
 
       const drift = p.col >= 0 ? (columnOffsets[p.col] ?? 0) : 0
       const px = p.x - ox

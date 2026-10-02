@@ -1,6 +1,7 @@
 import { STYLES } from '../data/styles'
 import './eye.css'
 import { asset } from '../system/asset'
+import { sheetPosition } from './blink'
 
 export type EyeOptions = {
   /** Mirrors the sclera art. The art is drawn as a right eye, so the left
@@ -31,19 +32,32 @@ export function createEye(slug: string, { flip = false }: EyeOptions = {}): HTML
   // only drawn by the debug overlay, but kept next to the geometry it describes
   el.style.setProperty('--travel-x', String(g.travel[0] / 100))
   el.style.setProperty('--travel-y', String(g.travel[1] / 100))
-  el.innerHTML =
-    `<img class="eye__sclera" src="${asset(`styles/${slug}/eye.png`)}" alt="" decoding="async">` +
-    `<img class="eye__ball" src="${asset(`styles/${slug}/ball.png`)}" alt="" decoding="async">`
-  if (g.blink) {
-    // The lid sits on top of the pupil and is drawn on the eye's own canvas,
-    // so it simply covers the eye box. Nothing autoplays: the registry starts
-    // both eyes of a pair together, and only fetches the clip once the pair
-    // is near the screen (preload="none" until then).
-    el.insertAdjacentHTML(
-      'beforeend',
-      `<video class="eye__blink" src="${asset(`styles/${slug}/blink.webm`)}" muted playsinline ` +
-        `preload="none" disablepictureinpicture disableremoteplayback aria-hidden="true"></video>`,
-    )
+  const sclera = `<img class="eye__sclera" src="${asset(`styles/${slug}/eye.png`)}" alt="" decoding="async">`
+  const sheet = g.blink
+  if (!sheet) {
+    el.innerHTML = sclera + `<img class="eye__ball" src="${asset(`styles/${slug}/ball.png`)}" alt="" decoding="async">`
+    return el
+  }
+
+  // The blink is a sprite sheet the registry steps through (both eyes of a
+  // pair from one clock). Until then each eye holds the first frame.
+  const [a, b, c, d] = sheet.box
+  const cells = `background-image:url("${asset(`styles/${slug}/blink.png`)}");` +
+    `background-size:${sheet.grid[0] * 100}% ${sheet.grid[1] * 100}%;` +
+    `background-position:${sheetPosition(sheet.timeline[0] ?? 0, sheet.grid)}`
+  if (sheet.mode === 'pupil') {
+    // the sheet IS the pupil: still .eye__ball, so it takes the gaze offset
+    el.style.setProperty('--sheet-ax', `${a}%`)
+    el.style.setProperty('--sheet-ay', `${b}%`)
+    el.style.setProperty('--sheet-w', String(c / 100))
+    el.style.setProperty('--sheet-h', String(d / 100))
+    el.innerHTML = sclera + `<div class="eye__ball eye__ball--sheet eye__sheet" style='${cells}'></div>`
+  } else {
+    // the lid is drawn on the eye's own canvas and closes over the pupil
+    el.innerHTML =
+      sclera +
+      `<img class="eye__ball" src="${asset(`styles/${slug}/ball.png`)}" alt="" decoding="async">` +
+      `<div class="eye__lid eye__sheet" style='${cells};left:${a}%;top:${b}%;width:${c}%;height:${d}%'></div>`
   }
   return el
 }

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "prep": "node scripts/prep-assets.mjs",
+    "blinks": "node scripts/encode-blinks.mjs",
     "dev": "npm run prep && vite",
     "dev:lan": "npm run prep && vite --mode lan",
     "test": "node scripts/prep-assets.mjs --selftest && node src/eyes/gaze.selftest.ts && node src/eyes/wander.selftest.ts && node src/eyes/blink.selftest.ts && node src/face/mapping.selftest.ts && node src/layout/wrap.selftest.ts && node src/data/cards.selftest.ts",
