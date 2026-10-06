@@ -53,7 +53,7 @@ export async function startFaceTracking(registry: Registry): Promise<FaceTracker
     }
 
     if (face) {
-      if(!tracking) fetch('http://10.0.1.121:3001/api/events', {
+      if(!tracking) fetch('http://10.0.1.121:3001/api/event', {
         method: 'POST',
         body: JSON.stringify({ deviceId: 'eyeball', value: 1 })
       })
