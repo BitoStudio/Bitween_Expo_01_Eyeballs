@@ -10,7 +10,7 @@
   /* The whole pair leans a little towards where its pupils point. --x/--y are
      the pupil offset the registry writes once per pair; applied after
      `rotate`, so they move along the pair's own tilted axes, same as the pupils. */
-  transform: translate3d(calc(var(--eye-w) * var(--x, 0)), calc(var(--eye-w) * var(--y, 0)), 0);
+  transform: translate3d(calc(var(--eye-w) * var(--x, 0) * 3), calc(var(--eye-w) * var(--y, 0) * 3), 0);
 }
 
 /* Spacing is a margin, not `gap`, because a negative value has to be legal —
